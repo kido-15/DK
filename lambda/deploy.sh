@@ -38,6 +38,7 @@ else
 fi
 
 echo "== 2) Lambda 실행 역할: $ROLE_NAME =="
+ROLE_IS_NEW=false
 if ! aws iam get-role --role-name "$ROLE_NAME" >/dev/null 2>&1; then
   aws iam create-role --role-name "$ROLE_NAME" \
     --assume-role-policy-document '{
@@ -46,15 +47,29 @@ if ! aws iam get-role --role-name "$ROLE_NAME" >/dev/null 2>&1; then
     }' >/dev/null
   aws iam attach-role-policy --role-name "$ROLE_NAME" \
     --policy-arn arn:aws:iam::aws:policy/service-role/AWSLambdaBasicExecutionRole
-  aws iam put-role-policy --role-name "$ROLE_NAME" --policy-name "s3-state-access" \
-    --policy-document "{
-      \"Version\": \"2012-10-17\",
-      \"Statement\": [{\"Effect\": \"Allow\", \"Action\": [\"s3:GetObject\", \"s3:PutObject\"], \"Resource\": \"arn:aws:s3:::${BUCKET_NAME}/*\"}]
-    }"
-  echo "역할 생성 완료, 전파 대기 중(10초)..."
-  sleep 10
+  ROLE_IS_NEW=true
+  echo "역할 생성 완료"
 else
   echo "역할 이미 존재함"
+fi
+
+# put-role-policy는 매번 덮어쓰기(idempotent)이므로, 기존 역할의 권한을
+# 최신 상태로 맞추기 위해 존재 여부와 무관하게 항상 실행한다.
+# GetObject/PutObject만으로는 부족하다: 대상 키가 아직 없을 때(최초 실행)
+# S3가 ListBucket 권한도 없으면 404 대신 403(AccessDenied)을 반환하는
+# AWS의 동작 때문에 ListBucket도 함께 부여해야 한다.
+aws iam put-role-policy --role-name "$ROLE_NAME" --policy-name "s3-state-access" \
+  --policy-document "{
+    \"Version\": \"2012-10-17\",
+    \"Statement\": [
+      {\"Effect\": \"Allow\", \"Action\": [\"s3:GetObject\", \"s3:PutObject\"], \"Resource\": \"arn:aws:s3:::${BUCKET_NAME}/*\"},
+      {\"Effect\": \"Allow\", \"Action\": \"s3:ListBucket\", \"Resource\": \"arn:aws:s3:::${BUCKET_NAME}\"}
+    ]
+  }"
+
+if [ "$ROLE_IS_NEW" = true ]; then
+  echo "권한 전파 대기 중(10초)..."
+  sleep 10
 fi
 ROLE_ARN=$(aws iam get-role --role-name "$ROLE_NAME" --query 'Role.Arn' --output text)
 
