@@ -1,0 +1,46 @@
+name: AI 관련 법안 알림
+
+on:
+  schedule:
+    # 매일 KST 09:00, 15:00, 21:00 (UTC 00:00, 06:00, 12:00)
+    - cron: '0 0,6,12 * * *'
+  workflow_dispatch: {}
+
+permissions:
+  contents: write
+
+concurrency:
+  group: ai-bill-alert
+  cancel-in-progress: false
+
+jobs:
+  check:
+    runs-on: ubuntu-latest
+    steps:
+      - name: 저장소 체크아웃
+        uses: actions/checkout@v4
+
+      - name: Python 설정
+        uses: actions/setup-python@v5
+        with:
+          python-version: '3.12'
+
+      - name: 법안 확인 및 알림 발송
+        env:
+          ASSEMBLY_API_KEY: ${{ secrets.ASSEMBLY_API_KEY }}
+          GMAIL_ADDRESS: ${{ secrets.GMAIL_ADDRESS }}
+          GMAIL_APP_PASSWORD: ${{ secrets.GMAIL_APP_PASSWORD }}
+          ALERT_TO: ${{ secrets.ALERT_TO }}
+        run: python scripts/check_ai_bills.py
+
+      - name: 상태 파일 커밋 및 푸시
+        run: |
+          git config user.name "github-actions[bot]"
+          git config user.email "github-actions[bot]@users.noreply.github.com"
+          git add data/seen_bills.json
+          if git diff --staged --quiet; then
+            echo "변경 사항 없음"
+          else
+            git commit -m "chore: 조회된 법안 상태 갱신"
+            git push
+          fi
