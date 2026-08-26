@@ -4,8 +4,12 @@
 새로 발의된 법안이 있으면 Gmail로 알림 메일을 보내는 자동화입니다.
 
 - 조회 대상: `국회의원 발의법률안` API (서비스ID `nzmimeepazxkubdpn`), 22대 국회
-- 실행 주기: GitHub Actions 스케줄러로 하루 3회 (KST 09/15/21시, `.github/workflows/ai-bill-alert.yml`에서 조정 가능)
-- 상태 저장: 이미 확인한 의안번호를 `data/seen_bills.json`에 저장해 중복 알림을 방지 (매 실행마다 자동 커밋)
+- 실행 주기: AWS Lambda(서울 리전) + EventBridge로 하루 3회 (KST 09/15/21시, `lambda/deploy.sh`에서 조정 가능)
+- 상태 저장: 이미 확인한 의안번호를 S3 버킷에 저장해 중복 알림을 방지
+
+> **왜 GitHub Actions가 아니라 AWS인가요?** 열린국회정보(open.assembly.go.kr)는 해외 IP 접속을 막고 있어서,
+> 미국 리전에서 실행되는 GitHub Actions에서는 API 호출이 타임아웃됩니다. 국내(서울) 리전인 AWS Lambda나
+> 회원님의 국내 PC에서만 정상 동작합니다. 로컬에서 한 번 실행해보고 싶다면 맨 아래 "로컬에서 직접 실행하기"를 참고하세요.
 
 ## 1. 열린국회정보 Open API 인증키 발급
 
@@ -32,23 +36,51 @@
 4. 앱 이름을 아무거나 입력(예: "ai-bill-alert") 하고 생성
 5. 표시되는 **16자리 비밀번호**를 복사 (공백 제거)
 
-## 3. GitHub 저장소 시크릿 등록
+## 3. AWS 계정 및 CLI 준비
 
-이 저장소의 **Settings → Secrets and variables → Actions → New repository secret** 에서 아래 4개를 등록하세요.
+1. AWS 계정이 없다면 [aws.amazon.com](https://aws.amazon.com)에서 가입 (신용카드 등록 필요하지만, 이 프로젝트는 Lambda/S3/EventBridge 모두 무료 티어 범위 안에서 동작합니다)
+2. **IAM 사용자 생성**: AWS 콘솔 → IAM → 사용자 → 사용자 추가 → 이름 아무거나(예: `ai-bill-alert-deployer`) → 권한은 `AdministratorAccess` 정책 연결 (개인 프로젝트용 1회성 설정이라 편의상 관리자 권한 사용, 이후 필요시 축소 가능)
+3. 해당 사용자 → **보안 자격 증명** 탭 → **액세스 키 만들기** → "명령줄 인터페이스(CLI)" 선택 → 생성된 **액세스 키 ID / 비밀 액세스 키** 복사 (이 값도 저에게 보내지 마세요)
+4. 로컬 PC에 AWS CLI 설치
+   ```bash
+   # macOS (Homebrew)
+   brew install awscli
+   ```
+5. 자격 증명 설정
+   ```bash
+   aws configure
+   # AWS Access Key ID: (위에서 복사한 값)
+   # AWS Secret Access Key: (위에서 복사한 값)
+   # Default region name: ap-northeast-2
+   # Default output format: json
+   ```
 
-| 이름 | 값 |
-|---|---|
-| `ASSEMBLY_API_KEY` | 1번에서 발급받은 열린국회정보 인증키 |
-| `GMAIL_ADDRESS` | 발신용 Gmail 주소 (예: `kido6402@gmail.com`) |
-| `GMAIL_APP_PASSWORD` | 2번에서 발급받은 16자리 앱 비밀번호 |
-| `ALERT_TO` | 알림 받을 이메일 주소 (`kido6402@gmail.com`, 생략 시 `GMAIL_ADDRESS`로 발송) |
+## 4. Lambda 배포
 
-## 4. 동작 확인
+저장소 루트에서 아래처럼 4개 환경변수를 설정하고 배포 스크립트를 실행하세요.
 
-시크릿 등록 후 **Actions 탭 → "AI 관련 법안 알림" 워크플로 → Run workflow** 로 수동 실행해 정상 동작을 확인할 수 있습니다.
+```bash
+export ASSEMBLY_API_KEY=발급받은키
+export GMAIL_ADDRESS=you@gmail.com
+export GMAIL_APP_PASSWORD=앱비밀번호16자리
+export ALERT_TO=you@gmail.com
+./lambda/deploy.sh
+```
+
+스크립트가 S3 버킷, IAM 역할, Lambda 함수, EventBridge 스케줄(하루 3회)을 자동으로 만들어줍니다.
+코드나 스케줄을 바꾼 뒤 같은 명령을 다시 실행하면 기존 리소스를 업데이트합니다.
+
+## 5. 동작 확인
+
+배포 스크립트 마지막에 안내되는 명령으로 즉시 한 번 실행해볼 수 있습니다.
+
+```bash
+aws lambda invoke --function-name ai-bill-alert --region ap-northeast-2 --cli-read-timeout 60 out.json && cat out.json
+```
 
 - 최초 실행 시에는 현재 시점의 법안 목록을 기준선으로 저장만 하고, 알림 메일은 보내지 않습니다.
 - 이후 실행부터는 새로 발의된 법안이 있을 때만 메일이 발송됩니다.
+- 실행 로그는 AWS 콘솔 → CloudWatch → 로그 그룹 → `/aws/lambda/ai-bill-alert` 에서 확인할 수 있습니다.
 
 ## 로컬에서 직접 실행하기
 
