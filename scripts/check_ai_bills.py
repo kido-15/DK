@@ -18,8 +18,9 @@ import smtplib
 import ssl
 import sys
 from email.mime.text import MIMEText
+from urllib.error import HTTPError
 from urllib.parse import urlencode
-from urllib.request import urlopen
+from urllib.request import Request, urlopen
 
 API_CODE = "nzmimeepazxkubdpn"  # 국회의원 발의법률안
 API_BASE = f"https://open.assembly.go.kr/portal/openapi/{API_CODE}"
@@ -27,6 +28,13 @@ KEYWORD = "인공지능"
 AGE = 22  # 22대 국회
 PAGE_SIZE = 100
 STATE_FILE = os.path.join(os.path.dirname(__file__), "..", "data", "seen_bills.json")
+
+# 기본 User-Agent(urllib 식별자)를 열린국회정보 서버가 차단하는 경우가 있어
+# 브라우저와 유사한 User-Agent를 명시적으로 지정한다.
+REQUEST_HEADERS = {
+    "User-Agent": "Mozilla/5.0 (compatible; ai-bill-alert/1.0)",
+    "Accept": "application/json",
+}
 
 # 열린국회정보 공통 응답 코드 (성공: INFO-000, 결과 없음: DATA-000)
 OK_CODES = {"INFO-000"}
@@ -46,8 +54,13 @@ def fetch_bills(api_key: str) -> list[dict]:
             "BILL_NAME": KEYWORD,
         }
         url = f"{API_BASE}?{urlencode(params)}"
-        with urlopen(url, timeout=20) as resp:
-            raw = resp.read().decode("utf-8-sig")
+        request = Request(url, headers=REQUEST_HEADERS)
+        try:
+            with urlopen(request, timeout=20) as resp:
+                raw = resp.read().decode("utf-8-sig")
+        except HTTPError as e:
+            body = e.read().decode("utf-8-sig", errors="replace")
+            raise RuntimeError(f"HTTP 오류 {e.code} {e.reason}. 응답: {body[:500]}") from e
 
         data = json.loads(raw)
         block = data.get(API_CODE)
