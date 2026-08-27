@@ -10,7 +10,7 @@
 #   export ASSEMBLY_API_KEY=...
 #   export GMAIL_ADDRESS=...
 #   export GMAIL_APP_PASSWORD=...
-#   export ALERT_TO=...
+#   export ALERT_TO=...       # 여러 명이면 콤마로 구분: a@gmail.com,b@gmail.com
 #   ./lambda/deploy.sh
 
 set -euo pipefail
@@ -79,7 +79,20 @@ rm -f function.zip
 zip -q function.zip handler.py
 echo "패키징 완료: $(pwd)/function.zip"
 
-ENV_VARS="Variables={ASSEMBLY_API_KEY=$ASSEMBLY_API_KEY,GMAIL_ADDRESS=$GMAIL_ADDRESS,GMAIL_APP_PASSWORD=$GMAIL_APP_PASSWORD,ALERT_TO=$ALERT_TO,STATE_BUCKET=$BUCKET_NAME}"
+# ALERT_TO에 콤마로 구분된 여러 이메일이 들어올 수 있어, 콤마가 구분자로
+# 쓰이는 shorthand(Variables={A=..,B=..}) 대신 JSON 형식으로 전달한다.
+ENV_VARS=$(cat <<JSON
+{
+  "Variables": {
+    "ASSEMBLY_API_KEY": "$ASSEMBLY_API_KEY",
+    "GMAIL_ADDRESS": "$GMAIL_ADDRESS",
+    "GMAIL_APP_PASSWORD": "$GMAIL_APP_PASSWORD",
+    "ALERT_TO": "$ALERT_TO",
+    "STATE_BUCKET": "$BUCKET_NAME"
+  }
+}
+JSON
+)
 
 echo "== 4) Lambda 함수 생성/업데이트 =="
 if aws lambda get-function --function-name "$FUNCTION_NAME" --region "$REGION" >/dev/null 2>&1; then

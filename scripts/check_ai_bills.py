@@ -7,7 +7,8 @@
   ASSEMBLY_API_KEY   - open.assembly.go.kr에서 발급받은 Open API 인증키
   GMAIL_ADDRESS      - 발신용 Gmail 주소
   GMAIL_APP_PASSWORD - 위 Gmail 계정의 앱 비밀번호(16자리)
-  ALERT_TO           - 알림을 받을 이메일 주소 (생략 시 GMAIL_ADDRESS로 발송)
+  ALERT_TO           - 알림을 받을 이메일 주소. 여러 명이면 콤마(,)로 구분
+                       (예: a@gmail.com,b@gmail.com). 생략 시 GMAIL_ADDRESS로 발송
 """
 
 from __future__ import annotations
@@ -113,7 +114,7 @@ def format_bill(bill: dict) -> str:
     return f"- {name} (의안번호 {no})\n  제안자: {proposer} / 제안일: {date}\n  {link}"
 
 
-def send_email(new_bills: list[dict], gmail_addr: str, gmail_pass: str, to_addr: str) -> None:
+def send_email(new_bills: list[dict], gmail_addr: str, gmail_pass: str, to_addrs: list[str]) -> None:
     body_lines = [format_bill(b) for b in new_bills]
     body = (
         f'"{KEYWORD}"이(가) 포함된 새 발의법률안이 {len(new_bills)}건 확인되었습니다.\n\n'
@@ -123,19 +124,19 @@ def send_email(new_bills: list[dict], gmail_addr: str, gmail_pass: str, to_addr:
     msg = MIMEText(body, _charset="utf-8")
     msg["Subject"] = f"[국회 알림] 인공지능 관련 법안 {len(new_bills)}건 발의"
     msg["From"] = gmail_addr
-    msg["To"] = to_addr
+    msg["To"] = ", ".join(to_addrs)
 
     context = ssl.create_default_context()
     with smtplib.SMTP_SSL("smtp.gmail.com", 465, context=context) as server:
         server.login(gmail_addr, gmail_pass)
-        server.sendmail(gmail_addr, [to_addr], msg.as_string())
+        server.sendmail(gmail_addr, to_addrs, msg.as_string())
 
 
 def main() -> int:
     api_key = os.environ["ASSEMBLY_API_KEY"]
     gmail_addr = os.environ["GMAIL_ADDRESS"]
     gmail_pass = os.environ["GMAIL_APP_PASSWORD"]
-    to_addr = os.environ.get("ALERT_TO") or gmail_addr
+    to_addrs = [a.strip() for a in (os.environ.get("ALERT_TO") or gmail_addr).split(",") if a.strip()]
 
     bills = fetch_bills(api_key)
     print(f'"{KEYWORD}" 관련 법안 조회 결과: 총 {len(bills)}건')
@@ -153,7 +154,7 @@ def main() -> int:
         print(f"최초 실행: 기준 데이터 {len(current_ids)}건을 저장하고 이번엔 알림을 보내지 않습니다.")
     elif new_bills:
         print(f"새 법안 {len(new_bills)}건 발견 -> 이메일 전송")
-        send_email(new_bills, gmail_addr, gmail_pass, to_addr)
+        send_email(new_bills, gmail_addr, gmail_pass, to_addrs)
     else:
         print("새로운 법안 없음.")
 
