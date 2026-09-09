@@ -19,8 +19,12 @@ browse_fee_pages.py(공지사항성 요금 안내 페이지)와 다르게, "예�
 
 사용법:
     python3 browse_reservation_pages.py --date 2026-09-12
+    python3 browse_reservation_pages.py --date 2026-09-12 --max-price 150000
     python3 browse_reservation_pages.py --date 2026-09-12 --only "88컨트리클럽,신라CC"
     python3 browse_reservation_pages.py --date 2026-09-12 --headless   # 이미 로그인 끝난 경우
+
+--max-price를 주면, 화면에서 찾은 숫자 중 그 값 이하인 게 하나라도 있는 줄만
+결과에 남깁니다(예: 정상가/할인가 두 값 중 할인가가 기준 이하면 포함).
 """
 
 import argparse
@@ -31,23 +35,52 @@ import sys
 import time
 
 WON_AMOUNT_RE = re.compile(r"[0-9][0-9,]{3,}\s*원")
+PRICE_NUM_RE = re.compile(r"\b\d{1,3}(?:,\d{3})+\b")  # "270,000"처럼 "원" 없이 콤마로 끊긴 금액도 잡기 위함
 TIME_RE = re.compile(r"\b([01]?\d|2[0-3]):[0-5]\d\b")
 LOGIN_WALL_HINTS = ("로그인이 필요", "로그인 후", "로그인해주세요", "회원 전용", "먼저 로그인", "Login Required")
+LOGIN_URL_HINTS = ("login", "signin", "member/login")
 RESERVATION_LINK_KEYWORDS = ["실시간예약", "온라인예약", "티타임예약", "예약하기", "예약안내", "예약", "Booking", "Reservation"]
+SEARCH_BUTTON_KEYWORDS = ["조회하기", "예약조회", "조회", "검색", "확인", "Search"]
+
+
+def looks_like_login_wall(page, text):
+    if any(hint in text for hint in LOGIN_WALL_HINTS):
+        return True
+    url_lower = page.url.lower()
+    return any(hint in url_lower for hint in LOGIN_URL_HINTS)
+
+
+def try_click_search_button(page):
+    """날짜만 고르고 바로 시간표가 안 뜨는 사이트를 위해, 조회/검색 버튼을 눌러본다."""
+    for kw in SEARCH_BUTTON_KEYWORDS:
+        try:
+            locator = page.get_by_role("button", name=kw, exact=False).first
+            if locator.count() > 0:
+                locator.click(timeout=2000)
+                page.wait_for_load_state("networkidle", timeout=8000)
+                return True
+        except Exception:
+            continue
+    return False
 
 PROFILE_DIR = os.path.join(os.path.dirname(__file__), ".browser_profile")
 
 
-def extract_hits(text):
+def extract_hits(text, max_price=None):
     """금액(원) 또는 시간(HH:MM) 패턴이 있는 줄과 그 앞뒤 줄을 모은다.
 
     실제 티타임 목록은 보통 "07:12   4인   180,000원"처럼 시간과 가격이
     같이 나오므로, 둘 중 하나만 있어도 후보로 잡아 앞뒤 문맥과 함께 보여준다.
+    max_price가 주어지면, 그 줄에서 찾은 금액 중 하나라도 그 값 이하여야
+    포함한다(정상가/할인가처럼 여러 금액이 한 줄에 있는 경우 대비).
     """
     lines = [ln.strip() for ln in text.splitlines() if ln.strip()]
     out, seen = [], set()
     for idx, line in enumerate(lines):
-        if not (WON_AMOUNT_RE.search(line) or TIME_RE.search(line)):
+        nums = [int(n.replace(",", "")) for n in PRICE_NUM_RE.findall(line)]
+        if not (WON_AMOUNT_RE.search(line) or TIME_RE.search(line) or nums):
+            continue
+        if max_price is not None and (not nums or min(nums) > max_price):
             continue
         before = lines[idx - 1] if idx > 0 else ""
         after = lines[idx + 1] if idx + 1 < len(lines) else ""
@@ -109,6 +142,7 @@ def main():
     parser.add_argument("--date", required=True, help="확인할 날짜 (YYYY-MM-DD, 예: 2026-09-12)")
     parser.add_argument("--only", default=None, help="쉼표로 구분한 골프장 이름 목록만 실행")
     parser.add_argument("--exclude", default=None, help="쉼표로 구분한 골프장 이름을 제외하고 실행")
+    parser.add_argument("--max-price", type=int, default=None, help="이 금액(원) 이하가 있는 줄만 결과에 남김")
     parser.add_argument("--headless", action="store_true")
     args = parser.parse_args()
 
@@ -131,7 +165,8 @@ def main():
         excluded = {n.strip() for n in args.exclude.split(",")}
         courses = [c for c in courses if c["name"] not in excluded]
 
-    out_lines = [f"조회 날짜: {args.date}", ""]
+    out_lines = []
+    summary = []  # (골프장명, 발견 개수) — 조건에 맞는 항목이 있던 곳만
     with sync_playwright() as p:
         context = p.chromium.launch_persistent_context(
             PROFILE_DIR, headless=args.headless, viewport={"width": 1280, "height": 900}
@@ -160,7 +195,7 @@ def main():
 
                 target_url = page.url
                 text = page.inner_text("body")
-                if any(hint in text for hint in LOGIN_WALL_HINTS):
+                if looks_like_login_wall(page, text):
                     print(f"  -> '{name}' 예약 페이지가 로그인을 요구합니다.")
                     print("     뜬 창에서 로그인 후, 여기로 돌아와 Enter를 눌러주세요.")
                     input("     계속하려면 Enter >> ")
@@ -178,17 +213,23 @@ def main():
                     out_lines.append("")
                     continue
 
+                try_click_search_button(page)
                 try:
                     page.wait_for_load_state("networkidle", timeout=8000)
                 except Exception:
                     pass
                 text = page.inner_text("body")
-                hits = extract_hits(text)
+                hits = extract_hits(text, max_price=args.max_price)
                 if hits:
-                    out_lines.append(f"-> {args.date} 화면({page.url}, 날짜선택방식: {method})에서 발견 {len(hits)}개:")
+                    price_note = f", {args.max_price:,}원 이하만" if args.max_price is not None else ""
+                    out_lines.append(f"-> {args.date} 화면({page.url}, 날짜선택방식: {method}{price_note})에서 발견 {len(hits)}개:")
                     for h in hits[:40]:
                         out_lines.append("   " + h.replace("\n", "\n   "))
                     print(f"  -> {len(hits)}개 발견")
+                    summary.append((name, len(hits)))
+                elif args.max_price is not None:
+                    out_lines.append(f"-> 날짜는 선택({method})했지만 {args.max_price:,}원 이하로 보이는 항목을 찾지 못함 (화면: {page.url}).")
+                    print("  -> 조건에 맞는 항목 없음")
                 else:
                     out_lines.append(f"-> 날짜는 선택({method})했지만 시간/가격으로 보이는 내용을 찾지 못함 (화면: {page.url}).")
                     print("  -> 후보 없음")
@@ -201,8 +242,20 @@ def main():
 
         context.close()
 
+    header = [f"조회 날짜: {args.date}"]
+    if args.max_price is not None:
+        header.append(f"가격 조건: {args.max_price:,}원 이하")
+    header.append("")
+    header.append("[요약] 조건에 맞는 항목이 발견된 골프장:")
+    if summary:
+        for name, count in summary:
+            header.append(f"  - {name}: {count}개")
+    else:
+        header.append("  (없음 — 대부분 로그인/날짜선택 실패이거나 조건에 맞는 항목이 없었습니다. 아래 상세 내용 참고)")
+    header.append("")
+
     with open(args.output, "w", encoding="utf-8") as f:
-        f.write("\n".join(out_lines))
+        f.write("\n".join(header + out_lines))
 
     print(f"\n완료: {args.output} 에 저장했습니다. 이 파일 내용을 Claude 대화에 붙여넣어 주세요.")
 
