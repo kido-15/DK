@@ -115,7 +115,25 @@ def main():
         def _on_dialog(dialog):
             print(f"  [팝업 메시지] ({dialog.type}) {dialog.message}")
             dialog.dismiss()
-        page.on("dialog", _on_dialog)
+
+        def _attach(p):
+            p.on("dialog", _on_dialog)
+
+            def _on_close():
+                try:
+                    print(f"  [창 닫힘] {p.url}")
+                except Exception:
+                    print("  [창 닫힘]")
+            p.on("close", _on_close)
+
+        # 로그인 등이 새 창(진짜 팝업 윈도우)으로 열리는 사이트도 있어서, 그 창에도
+        # 똑같이 핸들러가 붙도록 새 페이지가 열릴 때마다 등록한다.
+        def _on_new_page(new_page):
+            print(f"  [새 창 열림] {new_page.url}")
+            _attach(new_page)
+
+        context.on("page", _on_new_page)
+        _attach(page)
 
         for i, course in enumerate(courses, 1):
             name = course["name"]
