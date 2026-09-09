@@ -46,21 +46,72 @@ except ImportError:
     print("참고: certifi가 없어 기본 SSL 설정을 사용합니다. 인증서 오류가 나면", file=sys.stderr)
     print("      'pip3 install certifi' 실행 후 다시 시도하세요.", file=sys.stderr)
 
-WON_LINE_RE = re.compile(r"[가-힣A-Za-z0-9./~:\-\s]{0,20}[0-9][0-9,]{3,}\s*원[가-힣A-Za-z0-9./~:\-\s]{0,20}")
-TAG_RE = re.compile(r"<(script|style)[^>]*>.*?</\1>", re.IGNORECASE | re.DOTALL)
+WON_AMOUNT_RE = re.compile(r"[0-9][0-9,]{3,}\s*원")
+SCRIPT_STYLE_RE = re.compile(r"<(script|style)[^>]*>.*?</\1>", re.IGNORECASE | re.DOTALL)
+ROW_BREAK_RE = re.compile(r"(?i)</tr\s*>")
+CELL_BREAK_RE = re.compile(r"(?i)</t[dh]\s*>")
+BLOCK_BREAK_RE = re.compile(r"(?i)<br\s*/?>|</(p|div|li|h[1-6])\s*>")
 ANY_TAG_RE = re.compile(r"<[^>]+>")
+MULTI_SPACE_RE = re.compile(r"\s+")
 
 
 def strip_html(raw):
-    text = TAG_RE.sub(" ", raw)
-    text = ANY_TAG_RE.sub("\n", text)
+    """HTML을 표(행/셀) 구조를 살려서 텍스트 줄로 바꾼다.
+
+    같은 행(<tr>)의 셀(<td>/<th>)들은 " | "로 이어 붙여서, "평일 | 그린피 | 150,000원"처럼
+    라벨과 금액이 한 줄에 같이 나오게 한다. 단순히 태그마다 줄바꿈하면 라벨과 금액이
+    서로 다른 줄로 흩어져서 어떤 숫자가 무슨 항목인지 알 수 없어지기 때문.
+    """
+    text = SCRIPT_STYLE_RE.sub(" ", raw)
+    text = ROW_BREAK_RE.sub("\n", text)
+    text = CELL_BREAK_RE.sub(" | ", text)
+    text = BLOCK_BREAK_RE.sub("\n", text)
+    text = ANY_TAG_RE.sub("", text)
     text = html.unescape(text)
-    lines = [ln.strip() for ln in text.splitlines()]
-    return [ln for ln in lines if ln]
+
+    lines = []
+    for raw_line in text.splitlines():
+        line = MULTI_SPACE_RE.sub(" ", raw_line).strip(" |\t")
+        if line:
+            lines.append(line)
+    return lines
+
+
+HEADER_KEYWORDS = ("평일", "주말", "공휴일", "구분", "1부", "2부", "3부", "트와일라잇", "야간", "그린피", "요금")
+
+
+def hits_with_header_context(lines):
+    """금액이 있는 줄 각각에, 바로 앞줄이 표 헤더(평일/주말 등 라벨)로 보이면 같이 붙여서 반환한다.
+
+    strip_html이 같은 행의 라벨+금액은 이미 한 줄로 묶어 주지만, "어느 열이 평일이고
+    어느 열이 주말인지"는 보통 그 표의 첫 행(헤더)에만 있고 데이터 행에는 없다.
+    헤더 없이 숫자만 보면 착각하기 쉬우므로, 바로 위에 있던 헤더로 보이는 줄을 같이 보여준다.
+    """
+    out, seen = [], set()
+    for idx, line in enumerate(lines):
+        if not WON_AMOUNT_RE.search(line):
+            continue
+        prev = lines[idx - 1] if idx > 0 else ""
+        if prev and not WON_AMOUNT_RE.search(prev) and any(k in prev for k in HEADER_KEYWORDS):
+            entry = f"[표 헤더로 추정] {prev}\n   {line}"
+        else:
+            entry = line
+        if entry not in seen:
+            seen.add(entry)
+            out.append(entry)
+    return out
 
 
 def fetch(url):
-    req = urllib.request.Request(url, headers={"User-Agent": "Mozilla/5.0 (compatible; FeePageChecker/1.0)"})
+    headers = {
+        "User-Agent": (
+            "Mozilla/5.0 (Macintosh; Intel Mac OS X 10_15_7) AppleWebKit/537.36 "
+            "(KHTML, like Gecko) Chrome/124.0.0.0 Safari/537.36"
+        ),
+        "Accept": "text/html,application/xhtml+xml,application/xml;q=0.9,*/*;q=0.8",
+        "Accept-Language": "ko-KR,ko;q=0.9,en;q=0.8",
+    }
+    req = urllib.request.Request(url, headers=headers)
     with urllib.request.urlopen(req, timeout=12, context=SSL_CONTEXT) as resp:
         charset = resp.headers.get_content_charset() or "utf-8"
         return resp.read().decode(charset, errors="replace")
@@ -90,11 +141,10 @@ def main():
         try:
             raw = fetch(url)
             lines = strip_html(raw)
-            hits = [ln for ln in lines if WON_LINE_RE.search(ln)]
-            hits = list(dict.fromkeys(hits))  # 중복 제거, 순서 유지
+            hits = hits_with_header_context(lines)
             if hits:
-                out_lines.append(f"-> 금액으로 보이는 줄 {len(hits)}개:")
-                for h in hits[:40]:
+                out_lines.append(f"-> 금액으로 보이는 줄 {len(hits)}개 (같은 행의 라벨과 금액을 ' | '로 묶음):")
+                for h in hits[:60]:
                     out_lines.append("   " + h)
                 print(f"  ({i}/{len(courses)}) {name}: {len(hits)}개 후보 발견")
             else:
