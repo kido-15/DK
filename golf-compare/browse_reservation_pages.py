@@ -104,6 +104,56 @@ def try_click_keyword_link(page, keywords, timeout=2500):
     return False
 
 
+NEXT_MONTH_KEYWORDS = ["다음달", "다음 달", "다음월", "Next month", "Next", ">", "»", "▶", "›"]
+DISABLED_CLASS_HINTS = ("disabled", "past", "inactive", "unavailable", "off")
+
+
+def _find_day_cell(page, day):
+    """day(문자열 숫자)와 셀 텍스트의 맨 앞 숫자가 정확히 일치하는, 비활성화되지 않은 셀을 찾는다.
+
+    ":has-text('20')"는 부분 일치라 "18홀", "2인" 같은 것도 걸리므로, 후보를 넓게 모은 뒤
+    각 셀 텍스트의 맨 앞 숫자 토큰만 비교한다(요일 표기가 같이 있는 "20 토" 같은 셀도 대응).
+    """
+    for selector in ["td", "button", "a", "div", "span"]:
+        try:
+            candidates = page.locator(f"{selector}:has-text('{day}')")
+            n = min(candidates.count(), 40)
+            for i in range(n):
+                cell = candidates.nth(i)
+                raw = (cell.inner_text() or "").strip()
+                m = re.match(r"\d+", raw)
+                if not m or m.group(0) != day:
+                    continue
+                cls = (cell.get_attribute("class") or "").lower()
+                if any(h in cls for h in DISABLED_CLASS_HINTS):
+                    continue
+                return cell
+        except Exception:
+            continue
+    return None
+
+
+def _find_by_aria_label(page, target_date):
+    y, mo, d = target_date.split("-")
+    for text in (f"{int(mo)}월 {int(d)}일", f"{y}-{mo}-{d}", f"{y}년 {int(mo)}월 {int(d)}일"):
+        try:
+            loc = page.locator(f"[aria-label*='{text}']").first
+            if loc.count() > 0:
+                return loc
+        except Exception:
+            continue
+    return None
+
+
+def _click_cell(page, cell, method_name):
+    try:
+        cell.click(timeout=2000)
+        page.wait_for_timeout(1500)
+        return method_name
+    except Exception:
+        return None
+
+
 def try_select_date(page, target_date):
     """target_date: 'YYYY-MM-DD'. 성공하면 방식 이름을, 실패하면 None을 반환."""
     # 1) 네이티브 <input type="date">
@@ -117,21 +167,55 @@ def try_select_date(page, target_date):
     except Exception:
         pass
 
-    # 2) 달력 위젯에서 날짜 숫자가 정확히 일치하는 셀 클릭 (보이는 범위 안에 있을 때만 성공)
     day = str(int(target_date.split("-")[2]))
-    for selector in ["td", "button", "a", "div"]:
-        try:
-            candidates = page.locator(f"{selector}:has-text('{day}')")
-            n = min(candidates.count(), 30)
-            for i in range(n):
-                cell = candidates.nth(i)
-                txt = (cell.inner_text() or "").strip()
-                if txt == day:
-                    cell.click(timeout=2000)
-                    page.wait_for_timeout(1500)
-                    return f"calendar-cell({selector})"
-        except Exception:
-            continue
+
+    # 1.5) 달력이 클릭 전엔 안 보이고, 날짜 입력칸/버튼을 눌러야 펼쳐지는 사이트 대응
+    if not _find_day_cell(page, day):
+        for kw in ["날짜 선택", "날짜선택", "예약일자", "체크인", "달력"]:
+            try:
+                trigger = page.get_by_text(kw, exact=False).first
+                if trigger.count() > 0:
+                    trigger.click(timeout=1500)
+                    page.wait_for_timeout(800)
+                    break
+            except Exception:
+                continue
+
+    # 2) 달력 위젯에서 날짜 숫자 셀 클릭 (현재 보이는 화면 안에 있을 때)
+    cell = _find_day_cell(page, day)
+    if cell:
+        result = _click_cell(page, cell, "calendar-cell")
+        if result:
+            return result
+
+    # 3) aria-label에 날짜 전체가 박혀 있는 접근성 캘린더 대응
+    cell = _find_by_aria_label(page, target_date)
+    if cell:
+        result = _click_cell(page, cell, "calendar-aria-label")
+        if result:
+            return result
+
+    # 4) 원하는 날짜가 기본 화면(이번 달)에 없으면, "다음달" 버튼을 눌러가며 최대 3번 더 찾아본다.
+    for attempt in range(1, 4):
+        clicked_next = False
+        for kw in NEXT_MONTH_KEYWORDS:
+            try:
+                nxt = page.get_by_text(kw, exact=False).first
+                if nxt.count() > 0:
+                    nxt.click(timeout=1500)
+                    page.wait_for_timeout(1000)
+                    clicked_next = True
+                    break
+            except Exception:
+                continue
+        if not clicked_next:
+            break
+        cell = _find_day_cell(page, day)
+        if cell:
+            result = _click_cell(page, cell, f"calendar-cell(다음달x{attempt})")
+            if result:
+                return result
+
     return None
 
 
