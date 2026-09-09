@@ -1,0 +1,920 @@
+<title>그린피 레이더</title>
+<meta name="description" content="강남에서 90분 이내 골프장의 이동시간과 날짜별 그린피를 비교합니다.">
+<link rel="preconnect" href="https://fonts.gstatic.com" crossorigin>
+<link rel="stylesheet" href="https://fonts.googleapis.com/css2?family=Noto+Serif+KR:wght@600;700&family=Noto+Sans+KR:wght@400;500;700&display=swap">
+<style>
+  :root{
+    --bg:#F6F5EE;
+    --surface:#FFFFFF;
+    --surface-2:#EFEEE2;
+    --text:#1C2A20;
+    --text-muted:#5E6B5A;
+    --line:#DEDFCE;
+    --accent:#2E6B4C;
+    --accent-strong:#1F4E38;
+    --accent-soft:#DCEBDD;
+    --accent-2:#B5672E;
+    --accent-2-soft:#F3E3D1;
+    --good:#2E7D46;
+    --good-soft:#DDEEE0;
+    --warn:#8A6200;
+    --warn-soft:#F3E7C8;
+    --crit:#A83B2C;
+    --crit-soft:#F6DFDA;
+    --shadow:0 1px 2px rgba(28,42,32,.07),0 6px 16px rgba(28,42,32,.06);
+    --radius:12px;
+    color-scheme:light;
+  }
+  @media (prefers-color-scheme: dark){
+    :root:not([data-theme="light"]){
+      --bg:#141812;
+      --surface:#1B211A;
+      --surface-2:#212820;
+      --text:#ECEEE4;
+      --text-muted:#A7B29F;
+      --line:#2B322A;
+      --accent:#6FBE8E;
+      --accent-strong:#8FD1A7;
+      --accent-soft:#22362B;
+      --accent-2:#E3A165;
+      --accent-2-soft:#3A2C1E;
+      --good:#7BCB92;
+      --good-soft:#203327;
+      --warn:#E0B24D;
+      --warn-soft:#3A2F16;
+      --crit:#E3897A;
+      --crit-soft:#3A231F;
+      --shadow:0 1px 2px rgba(0,0,0,.45),0 10px 26px rgba(0,0,0,.4);
+      color-scheme:dark;
+    }
+  }
+  :root[data-theme="dark"]{
+    --bg:#141812;
+    --surface:#1B211A;
+    --surface-2:#212820;
+    --text:#ECEEE4;
+    --text-muted:#A7B29F;
+    --line:#2B322A;
+    --accent:#6FBE8E;
+    --accent-strong:#8FD1A7;
+    --accent-soft:#22362B;
+    --accent-2:#E3A165;
+    --accent-2-soft:#3A2C1E;
+    --good:#7BCB92;
+    --good-soft:#203327;
+    --warn:#E0B24D;
+    --warn-soft:#3A2F16;
+    --crit:#E3897A;
+    --crit-soft:#3A231F;
+    --shadow:0 1px 2px rgba(0,0,0,.45),0 10px 26px rgba(0,0,0,.4);
+    color-scheme:dark;
+  }
+
+  *{box-sizing:border-box;}
+  body{
+    margin:0;
+    background:var(--bg);
+    color:var(--text);
+    font-family:"Noto Sans KR","Malgun Gothic",sans-serif;
+    font-size:15px;
+    line-height:1.5;
+  }
+  h1,h2,h3{
+    font-family:"Noto Serif KR","Nanum Myeongjo",serif;
+    font-weight:700;
+    text-wrap:balance;
+    margin:0;
+  }
+  .wrap{
+    max-width:1180px;
+    margin:0 auto;
+    padding:28px 24px 64px;
+    display:flex;
+    flex-direction:column;
+    gap:22px;
+  }
+
+  /* ---------- header / controls ---------- */
+  .topbar{
+    display:flex;
+    flex-wrap:wrap;
+    justify-content:space-between;
+    align-items:flex-end;
+    gap:20px;
+    padding-bottom:18px;
+    border-bottom:1px solid var(--line);
+  }
+  .brand{display:flex;align-items:center;gap:14px;}
+  .brand-mark{
+    font-size:34px;
+    line-height:1;
+  }
+  .brand h1{font-size:26px;color:var(--accent-strong);}
+  .tagline{margin:4px 0 0;color:var(--text-muted);font-size:13.5px;}
+
+  .controls{
+    display:flex;
+    flex-wrap:wrap;
+    gap:14px 20px;
+    align-items:end;
+  }
+  .control{
+    display:flex;
+    flex-direction:column;
+    gap:5px;
+  }
+  .control-label{
+    font-size:12px;
+    font-weight:500;
+    color:var(--text-muted);
+    letter-spacing:.02em;
+  }
+  input[type="date"],select{
+    font-family:inherit;
+    font-size:14px;
+    color:var(--text);
+    background:var(--surface);
+    border:1px solid var(--line);
+    border-radius:8px;
+    padding:7px 10px;
+  }
+  input[type="range"]{
+    accent-color:var(--accent);
+    width:150px;
+  }
+  .range-row{display:flex;align-items:center;gap:8px;}
+  .range-value{
+    font-variant-numeric:tabular-nums;
+    font-weight:700;
+    color:var(--accent-strong);
+    font-size:13.5px;
+    min-width:38px;
+  }
+  .toggle-row{
+    display:flex;
+    align-items:center;
+    gap:7px;
+    font-size:13px;
+    color:var(--text-muted);
+  }
+  .toggle-row input{accent-color:var(--accent-2);}
+
+  /* ---------- stats ---------- */
+  .stats{
+    display:grid;
+    grid-template-columns:repeat(auto-fit,minmax(190px,1fr));
+    gap:14px;
+  }
+  .stat-tile{
+    background:var(--surface);
+    border:1px solid var(--line);
+    border-radius:var(--radius);
+    padding:16px 18px;
+    box-shadow:var(--shadow);
+  }
+  .stat-tile .label{
+    font-size:12.5px;
+    color:var(--text-muted);
+    margin-bottom:6px;
+  }
+  .stat-tile .value{
+    font-family:"Noto Serif KR",serif;
+    font-size:26px;
+    font-weight:700;
+    font-variant-numeric:tabular-nums;
+    color:var(--accent-strong);
+  }
+  .stat-tile .value small{
+    font-family:"Noto Sans KR",sans-serif;
+    font-size:14px;
+    font-weight:500;
+    color:var(--text-muted);
+    margin-left:2px;
+  }
+
+  /* ---------- table ---------- */
+  .table-card{
+    background:var(--surface);
+    border:1px solid var(--line);
+    border-radius:var(--radius);
+    box-shadow:var(--shadow);
+    overflow:hidden;
+  }
+  .table-scroll{overflow-x:auto;}
+  table{
+    width:100%;
+    border-collapse:collapse;
+    min-width:840px;
+  }
+  thead th{
+    text-align:left;
+    font-size:12px;
+    font-weight:700;
+    color:var(--text-muted);
+    letter-spacing:.03em;
+    background:var(--surface-2);
+    padding:11px 14px;
+    border-bottom:1px solid var(--line);
+    white-space:nowrap;
+    cursor:pointer;
+    user-select:none;
+  }
+  thead th.sorted{color:var(--accent-strong);}
+  thead th .arrow{margin-left:3px;opacity:.7;}
+  tbody td{
+    padding:12px 14px;
+    border-bottom:1px solid var(--line);
+    vertical-align:top;
+  }
+  tbody tr:last-child td{border-bottom:none;}
+  tbody tr:hover{background:var(--surface-2);}
+  .course-name{font-weight:700;}
+  .course-region{color:var(--text-muted);font-size:12.5px;margin-top:2px;}
+
+  .pill{
+    display:inline-flex;
+    align-items:center;
+    gap:5px;
+    padding:3px 9px;
+    border-radius:999px;
+    font-size:12px;
+    font-weight:700;
+    font-variant-numeric:tabular-nums;
+    white-space:nowrap;
+  }
+  .pill.good{background:var(--good-soft);color:var(--good);}
+  .pill.warn{background:var(--warn-soft);color:var(--warn);}
+  .pill.crit{background:var(--crit-soft);color:var(--crit);}
+  .pill.neutral{background:var(--surface-2);color:var(--text-muted);}
+  .est-tag{font-size:11px;color:var(--text-muted);display:block;margin-top:3px;}
+
+  .datetype-chip{
+    display:inline-block;
+    padding:2px 8px;
+    border-radius:999px;
+    font-size:11.5px;
+    font-weight:700;
+    margin-bottom:5px;
+  }
+  .datetype-chip.weekday{background:var(--accent-soft);color:var(--accent-strong);}
+  .datetype-chip.weekend{background:var(--accent-2-soft);color:var(--accent-2);}
+  .datetype-chip.holiday{background:var(--crit-soft);color:var(--crit);}
+
+  .price-value{
+    font-family:"Noto Serif KR",serif;
+    font-size:17px;
+    font-weight:700;
+    font-variant-numeric:tabular-nums;
+  }
+  .price-meta{font-size:11.5px;color:var(--text-muted);margin-top:2px;}
+  .price-empty{
+    font-size:12.5px;
+    color:var(--text-muted);
+  }
+
+  button{
+    font-family:inherit;
+    cursor:pointer;
+  }
+  .btn{
+    border:1px solid var(--line);
+    background:var(--surface);
+    color:var(--text);
+    border-radius:8px;
+    padding:6px 12px;
+    font-size:12.5px;
+    font-weight:500;
+  }
+  .btn:hover{border-color:var(--accent);}
+  .btn.primary{
+    background:var(--accent);
+    border-color:var(--accent);
+    color:#fff;
+    font-weight:700;
+  }
+  .btn.primary:hover{background:var(--accent-strong);border-color:var(--accent-strong);}
+  .btn:focus-visible,input:focus-visible,select:focus-visible,summary:focus-visible{
+    outline:2px solid var(--accent);
+    outline-offset:2px;
+  }
+
+  .edit-row td{background:var(--surface-2);padding:16px 18px;}
+  .edit-grid{
+    display:grid;
+    grid-template-columns:repeat(auto-fit,minmax(150px,1fr));
+    gap:12px;
+    margin-bottom:10px;
+  }
+  .edit-field label{
+    display:block;
+    font-size:11.5px;
+    color:var(--text-muted);
+    margin-bottom:4px;
+  }
+  .edit-field input{
+    width:100%;
+    font-family:inherit;
+    font-size:14px;
+    padding:6px 9px;
+    border:1px solid var(--line);
+    border-radius:7px;
+    background:var(--surface);
+    color:var(--text);
+    font-variant-numeric:tabular-nums;
+  }
+  .edit-actions{display:flex;gap:8px;justify-content:flex-end;}
+
+  /* ---------- panels ---------- */
+  .panel{
+    background:var(--surface);
+    border:1px solid var(--line);
+    border-radius:var(--radius);
+    box-shadow:var(--shadow);
+  }
+  .panel summary{
+    padding:14px 18px;
+    font-weight:700;
+    font-size:14px;
+    list-style:none;
+    display:flex;
+    align-items:center;
+    gap:8px;
+  }
+  .panel summary::-webkit-details-marker{display:none;}
+  .panel summary::before{content:"▸";color:var(--accent);transition:transform .15s;}
+  .panel[open] summary::before{transform:rotate(90deg);}
+  .panel .panel-body{padding:0 18px 18px;}
+  .panel p{color:var(--text-muted);font-size:13px;margin:0 0 12px;}
+  .panel textarea{
+    width:100%;
+    min-height:110px;
+    font-family:ui-monospace,SFMono-Regular,Consolas,monospace;
+    font-size:12.5px;
+    border:1px solid var(--line);
+    border-radius:8px;
+    padding:10px;
+    background:var(--surface-2);
+    color:var(--text);
+    resize:vertical;
+  }
+  .form-grid{
+    display:grid;
+    grid-template-columns:repeat(auto-fit,minmax(150px,1fr));
+    gap:12px;
+    margin-bottom:12px;
+  }
+  .form-grid label{display:block;font-size:11.5px;color:var(--text-muted);margin-bottom:4px;}
+  .form-grid input{
+    width:100%;
+    font-family:inherit;
+    font-size:14px;
+    padding:7px 9px;
+    border:1px solid var(--line);
+    border-radius:7px;
+    background:var(--surface);
+    color:var(--text);
+  }
+  .msg{font-size:12.5px;margin-top:8px;}
+  .msg.ok{color:var(--good);}
+  .msg.err{color:var(--crit);}
+
+  footer{
+    color:var(--text-muted);
+    font-size:12px;
+    line-height:1.7;
+    border-top:1px solid var(--line);
+    padding-top:16px;
+  }
+  footer strong{color:var(--text);}
+  .status-dot{
+    display:inline-block;
+    width:7px;height:7px;
+    border-radius:999px;
+    background:var(--text-muted);
+    margin-right:6px;
+    vertical-align:middle;
+  }
+  .status-dot.on{background:var(--good);}
+
+  @media (prefers-reduced-motion:reduce){
+    .panel summary::before{transition:none;}
+  }
+</style>
+
+<div class="wrap">
+
+  <div class="topbar">
+    <div class="brand">
+      <span class="brand-mark" aria-hidden="true">⛳</span>
+      <div>
+        <h1>그린피 레이더</h1>
+        <p class="tagline">강남 기준 이동시간 · 날짜별 그린피 비교</p>
+      </div>
+    </div>
+    <div class="controls">
+      <div class="control">
+        <span class="control-label">라운드 날짜</span>
+        <input type="date" id="dateInput">
+      </div>
+      <div class="control">
+        <span class="control-label">최대 이동시간</span>
+        <div class="range-row">
+          <input type="range" id="maxMinutes" min="30" max="150" step="5" value="90">
+          <span class="range-value" id="maxMinutesLabel">90분</span>
+        </div>
+      </div>
+      <div class="control">
+        <span class="control-label">정렬</span>
+        <select id="sortSelect">
+          <option value="price">그린피 낮은 순</option>
+          <option value="drive">이동시간 짧은 순</option>
+          <option value="name">이름순</option>
+        </select>
+      </div>
+      <div class="control">
+        <span class="control-label">&nbsp;</span>
+        <label class="toggle-row"><input type="checkbox" id="forceHoliday"> 공휴일 요금 강제 적용</label>
+      </div>
+    </div>
+  </div>
+
+  <div class="stats">
+    <div class="stat-tile">
+      <div class="label">조건에 맞는 골프장</div>
+      <div class="value" id="statCount">–<small>곳</small></div>
+    </div>
+    <div class="stat-tile">
+      <div class="label">선택한 날짜 최저 그린피</div>
+      <div class="value" id="statMinPrice">–</div>
+    </div>
+    <div class="stat-tile">
+      <div class="label">평균 이동시간</div>
+      <div class="value" id="statAvgDrive">–<small>분</small></div>
+    </div>
+  </div>
+
+  <div class="table-card">
+    <div class="table-scroll">
+      <table>
+        <thead>
+          <tr>
+            <th data-key="name">골프장 / 지역</th>
+            <th data-key="drive">강남 기준 이동시간</th>
+            <th data-key="price">선택 날짜 그린피</th>
+            <th>최근 업데이트</th>
+            <th></th>
+          </tr>
+        </thead>
+        <tbody id="tableBody"></tbody>
+      </table>
+    </div>
+  </div>
+
+  <details class="panel">
+    <summary>골프장 추가</summary>
+    <div class="panel-body">
+      <p>목록에 없는 골프장을 직접 추가합니다. 이동시간은 지역 평균으로 우선 추정되며, 아래 &ldquo;이동시간 실측 반영&rdquo;에서 정확한 값으로 갱신할 수 있습니다.</p>
+      <div class="form-grid">
+        <div>
+          <label for="newName">골프장 이름</label>
+          <input type="text" id="newName" placeholder="예: OO컨트리클럽">
+        </div>
+        <div>
+          <label for="newRegion">지역(시/군)</label>
+          <input type="text" id="newRegion" placeholder="예: 경기 이천시">
+        </div>
+        <div>
+          <label for="newEstMin">추정 이동시간 최소(분)</label>
+          <input type="number" id="newEstMin" min="0" step="5" placeholder="50">
+        </div>
+        <div>
+          <label for="newEstMax">추정 이동시간 최대(분)</label>
+          <input type="number" id="newEstMax" min="0" step="5" placeholder="70">
+        </div>
+      </div>
+      <button class="btn primary" id="addCourseBtn">골프장 추가</button>
+      <div class="msg" id="addCourseMsg"></div>
+    </div>
+  </details>
+
+  <details class="panel">
+    <summary>이동시간 실측 반영 (카카오모빌리티 스크립트 결과 붙여넣기)</summary>
+    <div class="panel-body">
+      <p>
+        저장소의 <code>golf-compare/fetch_distances.py</code>를 로컬에서 실행하면 강남역 기준 실제 자동차 이동시간을 계산한
+        JSON 결과가 나옵니다. 그 파일 내용을 그대로 붙여넣고 적용하면, 아래 표의 이동시간이 &ldquo;지역 추정&rdquo;에서
+        &ldquo;실측&rdquo;으로 갱신됩니다. 이름이 일치하는 골프장만 갱신됩니다.
+      </p>
+      <textarea id="distanceJson" placeholder='[{"name":"88컨트리클럽","driveMinutes":52,"distanceKm":48.3,"address":"..."}, ...]'></textarea>
+      <div style="margin-top:10px;display:flex;gap:8px;align-items:center;">
+        <button class="btn primary" id="applyDistancesBtn">이동시간 데이터 적용</button>
+        <span class="msg" id="applyDistancesMsg"></span>
+      </div>
+    </div>
+  </details>
+
+  <footer>
+    <p><span class="status-dot" id="statusDot"></span><span id="statusText">데이터 연결 확인 중…</span></p>
+    <p>
+      <strong>이동시간</strong>은 스크립트로 실측하기 전까지 지역 평균 기준 추정 범위이며 실제 교통 상황에 따라 달라질 수 있습니다.
+      <strong>그린피</strong>는 사용자가 직접 확인 후 입력한 값이며, 예약 시점의 실제 요금과 다를 수 있으니 최종 예약 전 골프장·예약 플랫폼에서 재확인하세요.
+      <strong>공휴일 목록</strong>(2026년, 대체공휴일 포함)은 참고용 자동 판정이며, 확실하지 않으면 상단의 수동 토글로 조정하세요.
+    </p>
+  </footer>
+</div>
+
+<script>
+(function(){
+  "use strict";
+
+  // 2026년 대한민국 공휴일 (대체공휴일 포함) — 참고용, 확정 발표 재확인 권장
+  var HOLIDAYS_2026 = [
+    "2026-01-01",
+    "2026-02-16","2026-02-17","2026-02-18",
+    "2026-03-01","2026-03-02",
+    "2026-05-05",
+    "2026-05-24","2026-05-25",
+    "2026-06-06",
+    "2026-08-15","2026-08-17",
+    "2026-09-24","2026-09-25","2026-09-26","2026-09-27",
+    "2026-10-03","2026-10-05",
+    "2026-10-09",
+    "2026-12-25"
+  ];
+
+  // 강남 기준 90분권 후보 — 지역 평균 이동시간 추정치(실측 아님). 스크립트로 실측 전까지 사용되는 오프라인 폴백 데이터이기도 함.
+  var FALLBACK_COURSES = [
+    {id:"cc88",name:"88컨트리클럽",region:"경기 용인시",estMin:40,estMax:60},
+    {id:"lakeside",name:"레이크사이드CC",region:"경기 용인시",estMin:45,estMax:65},
+    {id:"nambu",name:"남부CC",region:"경기 용인시",estMin:40,estMax:60},
+    {id:"shinwon",name:"신원CC",region:"경기 용인시",estMin:45,estMax:65},
+    {id:"plazayongin",name:"프라자CC 용인",region:"경기 용인시",estMin:40,estMax:60},
+    {id:"icheoncc",name:"이천CC",region:"경기 이천시",estMin:55,estMax:80},
+    {id:"shilla",name:"신라CC",region:"경기 이천시",estMin:55,estMax:80},
+    {id:"southsprings",name:"사우스스프링스CC",region:"경기 이천시",estMin:60,estMax:85},
+    {id:"crosby",name:"더크로스비GC",region:"경기 이천시",estMin:55,estMax:80},
+    {id:"blackstone",name:"블랙스톤이천CC",region:"경기 이천시",estMin:60,estMax:85},
+    {id:"yeojucc",name:"여주CC",region:"경기 여주시",estMin:65,estMax:90},
+    {id:"newspringville",name:"뉴스프링빌CC",region:"경기 여주시",estMin:65,estMax:90},
+    {id:"victoria",name:"빅토리아CC",region:"경기 여주시",estMin:70,estMax:95},
+    {id:"namchon",name:"남촌CC",region:"경기 광주시",estMin:45,estMax:70},
+    {id:"newseoul",name:"뉴서울CC",region:"경기 광주시",estMin:45,estMax:70},
+    {id:"gonjiam",name:"곤지암CC",region:"경기 광주시",estMin:45,estMax:70},
+    {id:"misa",name:"미사관광CC",region:"경기 하남시",estMin:35,estMax:55},
+    {id:"namseoul",name:"남서울CC",region:"경기 성남시",estMin:35,estMax:55},
+    {id:"diamond",name:"다이아몬드CC",region:"경기 남양주시",estMin:45,estMax:70},
+    {id:"segyeong",name:"세경CC",region:"경기 남양주시",estMin:45,estMax:70},
+    {id:"bearcreek",name:"베어크리크GC",region:"경기 가평군",estMin:70,estMax:95},
+    {id:"seowonhills",name:"서원힐스CC",region:"경기 양평군",estMin:60,estMax:85},
+    {id:"blueheron",name:"블루헤런CC",region:"경기 양평군",estMin:60,estMax:85},
+    {id:"seowonvalley",name:"서원밸리CC",region:"경기 파주시",estMin:55,estMax:80},
+    {id:"asiana",name:"아시아나CC",region:"경기 안성시",estMin:65,estMax:90},
+    {id:"laviebelle",name:"라비에벨CC",region:"경기 화성시",estMin:55,estMax:80}
+  ];
+
+  var state = {
+    db: null,
+    dbAvailable: false,
+    courses: {},   // id -> {name, region, estMin, estMax, driveMinutes, distanceKm, verified, source, updatedAt}
+    prices: {},    // id -> {weekday:{fee,updatedAt,note}, weekend:{...}, holiday:{...}}
+    sortKey: "price",
+    maxMinutes: 90,
+    forceHoliday: false
+  };
+
+  function slugify(name){
+    return name.replace(/[^\p{L}\p{N}]+/gu,"").toLowerCase() || ("c" + Math.random().toString(36).slice(2,8));
+  }
+
+  function todayIso(){
+    var d = new Date();
+    var tz = d.getTimezoneOffset() * 60000;
+    return new Date(d - tz).toISOString().slice(0,10);
+  }
+
+  function dateType(iso){
+    if(state.forceHoliday) return "holiday";
+    if(HOLIDAYS_2026.indexOf(iso) !== -1) return "holiday";
+    var d = new Date(iso + "T00:00:00");
+    var day = d.getDay();
+    if(day === 0 || day === 6) return "weekend";
+    return "weekday";
+  }
+
+  function dateTypeLabel(t){
+    return t === "holiday" ? "공휴일" : (t === "weekend" ? "주말" : "평일");
+  }
+
+  function effectiveDrive(course){
+    if(course.verified && typeof course.driveMinutes === "number"){
+      return {minutes: course.driveMinutes, verified:true};
+    }
+    var mid = Math.round(((course.estMin||0) + (course.estMax||0)) / 2);
+    return {minutes: mid, verified:false};
+  }
+
+  function drivePillClass(minutes){
+    if(minutes <= 60) return "good";
+    if(minutes <= 90) return "warn";
+    return "crit";
+  }
+
+  function fmtWon(n){
+    return "₩" + Math.round(n).toLocaleString("ko-KR");
+  }
+
+  function fmtUpdated(iso){
+    if(!iso) return "–";
+    try{
+      var d = new Date(iso);
+      return d.getFullYear() + "." + String(d.getMonth()+1).padStart(2,"0") + "." + String(d.getDate()).padStart(2,"0");
+    }catch(e){ return "–"; }
+  }
+
+  // ---------- rendering ----------
+  function buildRows(){
+    var iso = document.getElementById("dateInput").value || todayIso();
+    var dtype = dateType(iso);
+    var rows = [];
+    Object.keys(state.courses).forEach(function(id){
+      var c = state.courses[id];
+      var drive = effectiveDrive(c);
+      if(drive.minutes > state.maxMinutes) return;
+      var priceEntry = (state.prices[id] || {})[dtype];
+      rows.push({
+        id: id,
+        course: c,
+        driveMinutes: drive.minutes,
+        driveVerified: drive.verified,
+        dtype: dtype,
+        price: priceEntry ? priceEntry.fee : null,
+        priceUpdated: priceEntry ? priceEntry.updatedAt : null,
+        priceNote: priceEntry ? priceEntry.note : ""
+      });
+    });
+    rows.sort(function(a,b){
+      if(state.sortKey === "drive") return a.driveMinutes - b.driveMinutes;
+      if(state.sortKey === "name") return a.course.name.localeCompare(b.course.name, "ko");
+      // price: entries with a price first (ascending), then no-price rows by drive time
+      var ap = a.price === null ? Infinity : a.price;
+      var bp = b.price === null ? Infinity : b.price;
+      if(ap !== bp) return ap - bp;
+      return a.driveMinutes - b.driveMinutes;
+    });
+    return {rows: rows, dtype: dtype, iso: iso};
+  }
+
+  function render(){
+    var built = buildRows();
+    var rows = built.rows;
+    var tbody = document.getElementById("tableBody");
+    tbody.innerHTML = "";
+
+    rows.forEach(function(r){
+      var tr = document.createElement("tr");
+      var pillClass = drivePillClass(r.driveMinutes);
+
+      var priceCell;
+      if(r.price !== null){
+        priceCell =
+          '<span class="datetype-chip ' + r.dtype + '">' + dateTypeLabel(r.dtype) + '</span><br>' +
+          '<span class="price-value">' + fmtWon(r.price) + '</span>' +
+          '<div class="price-meta">업데이트 ' + fmtUpdated(r.priceUpdated) + (r.priceNote ? " · " + escapeHtml(r.priceNote) : "") + '</div>';
+      } else {
+        priceCell =
+          '<span class="datetype-chip ' + r.dtype + '">' + dateTypeLabel(r.dtype) + '</span><br>' +
+          '<span class="price-empty">가격 미입력</span>';
+      }
+
+      tr.innerHTML =
+        '<td><div class="course-name">' + escapeHtml(r.course.name) + '</div><div class="course-region">' + escapeHtml(r.course.region) + '</div></td>' +
+        '<td><span class="pill ' + pillClass + '">' + r.driveMinutes + '분</span>' +
+          (r.driveVerified ? '<span class="est-tag">실측</span>' : '<span class="est-tag">지역 추정(' + r.course.estMin + '–' + r.course.estMax + '분)</span>') +
+        '</td>' +
+        '<td>' + priceCell + '</td>' +
+        '<td>' + fmtUpdated(r.course.updatedAt) + '</td>' +
+        '<td><button class="btn edit-btn" data-id="' + r.id + '">가격 편집</button></td>';
+      tbody.appendChild(tr);
+
+      var editRow = document.createElement("tr");
+      editRow.className = "edit-row";
+      editRow.style.display = "none";
+      editRow.dataset.editFor = r.id;
+      var p = state.prices[r.id] || {};
+      editRow.innerHTML =
+        '<td colspan="5"><div class="edit-grid">' +
+          editField("평일 그린피", r.id, "weekday", p.weekday) +
+          editField("주말 그린피", r.id, "weekend", p.weekend) +
+          editField("공휴일 그린피", r.id, "holiday", p.holiday) +
+        '</div>' +
+        '<div class="edit-field" style="margin-bottom:10px;"><label>메모(선택)</label><input type="text" id="note-' + r.id + '" value="' + escapeAttr((p.weekday && p.weekday.note) || "") + '" placeholder="예: 카트비 포함, 캐디피 별도"></div>' +
+        '<div class="edit-actions"><button class="btn save-price-btn" data-id="' + r.id + '">저장</button></div></td>';
+      tbody.appendChild(editRow);
+    });
+
+    if(rows.length === 0){
+      var emptyTr = document.createElement("tr");
+      emptyTr.innerHTML = '<td colspan="5" style="text-align:center;color:var(--text-muted);padding:30px;">조건에 맞는 골프장이 없습니다. 최대 이동시간을 늘려보세요.</td>';
+      tbody.appendChild(emptyTr);
+    }
+
+    // stats
+    document.getElementById("statCount").innerHTML = rows.length + "<small>곳</small>";
+    var priced = rows.filter(function(r){ return r.price !== null; });
+    document.getElementById("statMinPrice").textContent = priced.length ? fmtWon(Math.min.apply(null, priced.map(function(r){return r.price;}))) : "미입력";
+    document.getElementById("statAvgDrive").innerHTML = rows.length ? Math.round(rows.reduce(function(s,r){return s+r.driveMinutes;},0)/rows.length) + "<small>분</small>" : "–<small>분</small>";
+
+    bindRowEvents();
+  }
+
+  function editField(label, id, key, entry){
+    var val = entry && typeof entry.fee === "number" ? entry.fee : "";
+    return '<div class="edit-field"><label>' + label + '(원)</label>' +
+      '<input type="number" min="0" step="1000" id="fee-' + key + '-' + id + '" value="' + val + '" placeholder="예: 180000"></div>';
+  }
+
+  function escapeHtml(s){
+    return String(s).replace(/[&<>"']/g, function(c){
+      return {"&":"&amp;","<":"&lt;",">":"&gt;",'"':"&quot;","'":"&#39;"}[c];
+    });
+  }
+  function escapeAttr(s){ return escapeHtml(s); }
+
+  function bindRowEvents(){
+    document.querySelectorAll(".edit-btn").forEach(function(btn){
+      btn.onclick = function(){
+        var id = btn.dataset.id;
+        var row = document.querySelector('tr[data-edit-for="' + id + '"]');
+        if(row) row.style.display = row.style.display === "none" ? "" : "none";
+      };
+    });
+    document.querySelectorAll(".save-price-btn").forEach(function(btn){
+      btn.onclick = function(){ savePrice(btn.dataset.id); };
+    });
+  }
+
+  function savePrice(id){
+    var note = (document.getElementById("note-" + id) || {}).value || "";
+    var now = new Date().toISOString();
+    var body = {};
+    ["weekday","weekend","holiday"].forEach(function(key){
+      var el = document.getElementById("fee-" + key + "-" + id);
+      var v = el && el.value !== "" ? Number(el.value) : null;
+      if(v !== null && !isNaN(v)){
+        body[key] = {fee: v, updatedAt: now, note: note};
+      }
+    });
+    state.prices[id] = Object.assign({}, state.prices[id], body);
+    if(state.db){
+      state.db.collection("prices").doc(id).set(state.prices[id]).catch(function(){});
+    }
+    render();
+  }
+
+  // ---------- add course ----------
+  document.getElementById("addCourseBtn").addEventListener("click", function(){
+    var name = document.getElementById("newName").value.trim();
+    var region = document.getElementById("newRegion").value.trim();
+    var estMin = Number(document.getElementById("newEstMin").value);
+    var estMax = Number(document.getElementById("newEstMax").value);
+    var msg = document.getElementById("addCourseMsg");
+    if(!name || !region || !estMin || !estMax){
+      msg.className = "msg err";
+      msg.textContent = "이름, 지역, 추정 이동시간(최소/최대)을 모두 입력하세요.";
+      return;
+    }
+    var id = slugify(name);
+    var course = {
+      name: name, region: region, estMin: estMin, estMax: estMax,
+      driveMinutes: null, distanceKm: null, verified: false,
+      source: "수동 입력(지역 추정)", updatedAt: new Date().toISOString()
+    };
+    state.courses[id] = course;
+    if(state.db){
+      state.db.collection("courses").doc(id).set(course).catch(function(){});
+    }
+    msg.className = "msg ok";
+    msg.textContent = '"' + name + '" 추가되었습니다.';
+    document.getElementById("newName").value = "";
+    document.getElementById("newRegion").value = "";
+    document.getElementById("newEstMin").value = "";
+    document.getElementById("newEstMax").value = "";
+    render();
+  });
+
+  // ---------- apply distances json ----------
+  document.getElementById("applyDistancesBtn").addEventListener("click", function(){
+    var msg = document.getElementById("applyDistancesMsg");
+    var raw = document.getElementById("distanceJson").value.trim();
+    if(!raw){ msg.className="msg err"; msg.textContent="붙여넣은 내용이 없습니다."; return; }
+    var data;
+    try{ data = JSON.parse(raw); }
+    catch(e){ msg.className="msg err"; msg.textContent="JSON 형식을 확인하세요: " + e.message; return; }
+    if(!Array.isArray(data)){ msg.className="msg err"; msg.textContent="JSON 배열 형식이어야 합니다."; return; }
+
+    var updated = 0, skipped = 0;
+    data.forEach(function(entry){
+      if(!entry || !entry.name) { skipped++; return; }
+      var targetId = null;
+      Object.keys(state.courses).forEach(function(id){
+        if(state.courses[id].name.replace(/\s+/g,"") === String(entry.name).replace(/\s+/g,"")){
+          targetId = id;
+        }
+      });
+      if(!targetId){ skipped++; return; }
+      var patch = {
+        driveMinutes: typeof entry.driveMinutes === "number" ? entry.driveMinutes : null,
+        distanceKm: typeof entry.distanceKm === "number" ? entry.distanceKm : null,
+        verified: true,
+        source: "카카오모빌리티 API 실측",
+        updatedAt: new Date().toISOString()
+      };
+      if(entry.address) patch.address = entry.address;
+      state.courses[targetId] = Object.assign({}, state.courses[targetId], patch);
+      if(state.db){
+        state.db.doc("courses/" + targetId).update(patch).catch(function(){
+          state.db.doc("courses/" + targetId).set(state.courses[targetId]).catch(function(){});
+        });
+      }
+      updated++;
+    });
+    msg.className = "msg ok";
+    msg.textContent = updated + "곳 갱신, " + skipped + "곳은 이름이 일치하지 않아 건너뜀.";
+    render();
+  });
+
+  // ---------- controls ----------
+  document.getElementById("dateInput").value = todayIso();
+  document.getElementById("dateInput").addEventListener("change", render);
+  document.getElementById("forceHoliday").addEventListener("change", function(e){
+    state.forceHoliday = e.target.checked;
+    render();
+  });
+  document.getElementById("maxMinutes").addEventListener("input", function(e){
+    state.maxMinutes = Number(e.target.value);
+    document.getElementById("maxMinutesLabel").textContent = state.maxMinutes + "분";
+    render();
+  });
+  document.getElementById("sortSelect").addEventListener("change", function(e){
+    state.sortKey = e.target.value;
+    render();
+  });
+
+  // ---------- data wiring ----------
+  function loadFallback(){
+    FALLBACK_COURSES.forEach(function(c){
+      state.courses[c.id] = {
+        name:c.name, region:c.region, estMin:c.estMin, estMax:c.estMax,
+        driveMinutes:null, distanceKm:null, verified:false,
+        source:"지역 평균 추정(경로 미실측)", updatedAt:null
+      };
+    });
+  }
+
+  function setStatus(dbOn){
+    var dot = document.getElementById("statusDot");
+    var text = document.getElementById("statusText");
+    if(dbOn){
+      dot.classList.add("on");
+      text.textContent = "저장 연결됨 — 입력한 가격과 이동시간은 이 링크를 여는 모두에게 공유·저장됩니다.";
+    } else {
+      dot.classList.remove("on");
+      text.textContent = "저장 미연결 — 이 화면(브라우저)에만 임시로 반영되며 새로고침 시 초기화됩니다.";
+    }
+  }
+
+  async function init(){
+    loadFallback();
+    render();
+
+    if(!window.claude || !window.claude.use){
+      setStatus(false);
+      return;
+    }
+    try{
+      var db = await window.claude.use("db");
+      if(!db){ setStatus(false); return; }
+      state.db = db;
+      setStatus(true);
+
+      db.collection("courses").onSnapshot(function(snap){
+        snap.docs.forEach(function(doc){
+          if(doc.exists) state.courses[doc.id] = doc.data();
+        });
+        render();
+      }, function(){ /* keep fallback rendering on error */ });
+
+      db.collection("prices").onSnapshot(function(snap){
+        snap.docs.forEach(function(doc){
+          if(doc.exists) state.prices[doc.id] = doc.data();
+        });
+        render();
+      }, function(){});
+    }catch(e){
+      setStatus(false);
+    }
+  }
+
+  init();
+})();
+</script>
