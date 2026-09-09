@@ -66,6 +66,60 @@ def try_click_search_button(page):
     return False
 
 PROFILE_DIR = os.path.join(os.path.dirname(__file__), ".browser_profile")
+DEBUG_DIR = os.path.join(os.path.dirname(__file__), "debug_pages")
+
+CALENDAR_HINT_SELECTORS = [
+    "[class*='calendar' i]", "[id*='calendar' i]",
+    "[class*='datepick' i]", "[id*='datepick' i]",
+    "[class*='date-picker' i]", "[class*='cal-' i]",
+]
+
+
+def dump_debug_page(page, course_name, max_chars=20000):
+    """날짜 선택이 실패한 페이지의 캘린더로 보이는 부분 HTML + 스크린샷을 저장한다.
+
+    Claude가 이 세션에서 사이트를 직접 열어볼 수 없어서, 매번 선택자를 추측해서
+    고쳐왔다. 이 함수로 실제 마크업을 파일로 남기면, 그 내용을 대화에 붙여넣어
+    받아서 훨씬 정확하게 고칠 수 있다.
+    """
+    os.makedirs(DEBUG_DIR, exist_ok=True)
+    safe_name = re.sub(r"[^\w가-힣-]+", "_", course_name)
+
+    snippets = []
+    for sel in CALENDAR_HINT_SELECTORS:
+        try:
+            loc = page.locator(sel)
+            n = min(loc.count(), 3)
+            for i in range(n):
+                html = loc.nth(i).evaluate("el => el.outerHTML")
+                if html and html not in snippets:
+                    snippets.append(html)
+        except Exception:
+            continue
+    if not snippets:
+        try:
+            tables = page.locator("table")
+            n = min(tables.count(), 5)
+            for i in range(n):
+                html = tables.nth(i).evaluate("el => el.outerHTML")
+                if html:
+                    snippets.append(html)
+        except Exception:
+            pass
+
+    combined = ("\n\n" + "-" * 40 + "\n\n").join(snippets)[:max_chars]
+    html_path = os.path.join(DEBUG_DIR, f"{safe_name}.html")
+    with open(html_path, "w", encoding="utf-8") as f:
+        f.write(f"URL: {page.url}\n\n")
+        f.write(combined or "(캘린더/날짜 관련 요소를 찾지 못함 — table도 없음)")
+
+    png_path = os.path.join(DEBUG_DIR, f"{safe_name}.png")
+    try:
+        page.screenshot(path=png_path)
+    except Exception:
+        png_path = None
+
+    return html_path, png_path
 
 
 def extract_hits(text, max_price=None):
@@ -374,8 +428,10 @@ def main():
 
                 method = try_select_date(page, args.date)
                 if not method:
+                    html_path, png_path = dump_debug_page(page, name)
                     out_lines.append(f"-> 날짜 선택 실패 (현재 화면: {page.url}). 이 사이트는 직접 열어서 확인하는 게 빠를 수 있습니다.")
-                    print("  -> 날짜 선택 실패")
+                    out_lines.append(f"   디버그 정보 저장: {html_path}" + (f", {png_path}" if png_path else ""))
+                    print(f"  -> 날짜 선택 실패 (디버그: {html_path})")
                     out_lines.append("")
                     continue
 
