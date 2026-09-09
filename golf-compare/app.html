@@ -299,11 +299,33 @@
   }
 
   .edit-row td{background:var(--surface-2);padding:16px 18px;}
+  .entry-list{display:flex;flex-direction:column;gap:8px;margin-bottom:14px;}
+  .entry-row{
+    display:flex;
+    flex-wrap:wrap;
+    align-items:center;
+    gap:10px;
+    background:var(--surface);
+    border:1px solid var(--line);
+    border-radius:8px;
+    padding:8px 12px;
+  }
+  .band-chip{
+    font-size:12px;
+    color:var(--text-muted);
+    font-weight:500;
+  }
+  .entry-row .price-value{font-size:15px;margin-left:auto;}
+  .entry-row .price-meta{margin:0 10px 0 0;}
+  .btn.small{padding:4px 9px;font-size:11.5px;}
+  .btn.danger{color:var(--crit);border-color:var(--crit-soft);}
+  .btn.danger:hover{border-color:var(--crit);background:var(--crit-soft);}
   .edit-grid{
     display:grid;
-    grid-template-columns:repeat(auto-fit,minmax(150px,1fr));
-    gap:12px;
+    grid-template-columns:repeat(auto-fit,minmax(130px,1fr));
+    gap:10px;
     margin-bottom:10px;
+    align-items:end;
   }
   .edit-field label{
     display:block;
@@ -311,7 +333,7 @@
     color:var(--text-muted);
     margin-bottom:4px;
   }
-  .edit-field input{
+  .edit-field input,.edit-field select{
     width:100%;
     font-family:inherit;
     font-size:14px;
@@ -424,6 +446,17 @@
         </div>
       </div>
       <div class="control">
+        <span class="control-label">시간대</span>
+        <select id="bandSelect">
+          <option value="all">전체 (최저가 표시)</option>
+          <option value="dawn">새벽/1부</option>
+          <option value="morning">오전/2부</option>
+          <option value="afternoon">오후/3부</option>
+          <option value="twilight">트와일라잇</option>
+          <option value="night">야간</option>
+        </select>
+      </div>
+      <div class="control">
         <span class="control-label">정렬</span>
         <select id="sortSelect">
           <option value="price">그린피 낮은 순</option>
@@ -444,7 +477,7 @@
       <div class="value" id="statCount">–<small>곳</small></div>
     </div>
     <div class="stat-tile">
-      <div class="label">선택한 날짜 최저 그린피</div>
+      <div class="label">선택한 날짜·시간대 최저 그린피</div>
       <div class="value" id="statMinPrice">–</div>
     </div>
     <div class="stat-tile">
@@ -460,7 +493,7 @@
           <tr>
             <th data-key="name">골프장 / 지역</th>
             <th data-key="drive">강남 기준 이동시간</th>
-            <th data-key="price">선택 날짜 그린피</th>
+            <th data-key="price">선택 날짜·시간대 그린피</th>
             <th>최근 업데이트</th>
             <th></th>
           </tr>
@@ -517,7 +550,8 @@
     <p><span class="status-dot" id="statusDot"></span><span id="statusText">데이터 연결 확인 중…</span></p>
     <p>
       <strong>이동시간</strong>은 스크립트로 실측하기 전까지 지역 평균 기준 추정 범위이며 실제 교통 상황에 따라 달라질 수 있습니다.
-      <strong>그린피</strong>는 사용자가 직접 확인 후 입력한 값이며, 예약 시점의 실제 요금과 다를 수 있으니 최종 예약 전 골프장·예약 플랫폼에서 재확인하세요.
+      <strong>그린피</strong>는 골프장 홈페이지 등에서 직접 확인한 값을 날짜유형(평일/주말/공휴일) × 시간대(새벽·1부 ~ 야간)별로 등록하는 방식입니다.
+      같은 날짜라도 시간대에 따라 요금 차이가 크므로, 편집 화면에서 확인한 시간대마다 따로 등록하세요. 예약 시점의 실제 요금과 다를 수 있으니 최종 예약 전 다시 확인하세요.
       <strong>공휴일 목록</strong>(2026년, 대체공휴일 포함)은 참고용 자동 판정이며, 확실하지 않으면 상단의 수동 토글로 조정하세요.
     </p>
   </footer>
@@ -572,18 +606,32 @@
     {id:"laviebelle",name:"라비에벨CC",region:"경기 화성시",estMin:55,estMax:80}
   ];
 
+  var BAND_LABELS = {
+    dawn: "새벽/1부",
+    morning: "오전/2부",
+    afternoon: "오후/3부",
+    twilight: "트와일라잇",
+    night: "야간"
+  };
+
   var state = {
     db: null,
     dbAvailable: false,
     courses: {},   // id -> {name, region, estMin, estMax, driveMinutes, distanceKm, verified, source, updatedAt}
-    prices: {},    // id -> {weekday:{fee,updatedAt,note}, weekend:{...}, holiday:{...}}
+    prices: {},    // id -> {entries: [{id, dateType, band, customLabel, fee, updatedAt, note}, ...]}
+    expanded: {},  // id -> bool, which rows have the edit panel open
     sortKey: "price",
     maxMinutes: 90,
-    forceHoliday: false
+    forceHoliday: false,
+    band: "all"
   };
 
   function slugify(name){
     return name.replace(/[^\p{L}\p{N}]+/gu,"").toLowerCase() || ("c" + Math.random().toString(36).slice(2,8));
+  }
+
+  function genId(){
+    return Date.now().toString(36) + Math.random().toString(36).slice(2,8);
   }
 
   function todayIso(){
@@ -632,6 +680,19 @@
   }
 
   // ---------- rendering ----------
+  function entriesFor(id){
+    return (state.prices[id] && state.prices[id].entries) || [];
+  }
+
+  function cheapestEntry(id, dtype, band){
+    var matching = entriesFor(id).filter(function(e){
+      return e.dateType === dtype && (band === "all" || e.band === band);
+    });
+    if(matching.length === 0) return null;
+    matching.sort(function(a,b){ return a.fee - b.fee; });
+    return matching[0];
+  }
+
   function buildRows(){
     var iso = document.getElementById("dateInput").value || todayIso();
     var dtype = dateType(iso);
@@ -640,16 +701,17 @@
       var c = state.courses[id];
       var drive = effectiveDrive(c);
       if(drive.minutes > state.maxMinutes) return;
-      var priceEntry = (state.prices[id] || {})[dtype];
+      var picked = cheapestEntry(id, dtype, state.band);
+      var dtypeCount = entriesFor(id).filter(function(e){ return e.dateType === dtype; }).length;
       rows.push({
         id: id,
         course: c,
         driveMinutes: drive.minutes,
         driveVerified: drive.verified,
         dtype: dtype,
-        price: priceEntry ? priceEntry.fee : null,
-        priceUpdated: priceEntry ? priceEntry.updatedAt : null,
-        priceNote: priceEntry ? priceEntry.note : ""
+        entry: picked,
+        price: picked ? picked.fee : null,
+        dtypeCount: dtypeCount
       });
     });
     rows.sort(function(a,b){
@@ -675,15 +737,19 @@
       var pillClass = drivePillClass(r.driveMinutes);
 
       var priceCell;
-      if(r.price !== null){
+      if(r.entry){
+        var bandText = BAND_LABELS[r.entry.band] + (r.entry.customLabel ? " · " + escapeHtml(r.entry.customLabel) : "");
+        var multiNote = (state.band === "all" && r.dtypeCount > 1) ? (" · 최저가 시간대 (" + r.dtypeCount + "개 등록)") : "";
         priceCell =
           '<span class="datetype-chip ' + r.dtype + '">' + dateTypeLabel(r.dtype) + '</span><br>' +
-          '<span class="price-value">' + fmtWon(r.price) + '</span>' +
-          '<div class="price-meta">업데이트 ' + fmtUpdated(r.priceUpdated) + (r.priceNote ? " · " + escapeHtml(r.priceNote) : "") + '</div>';
+          '<span class="price-value">' + fmtWon(r.entry.fee) + '</span>' +
+          '<div class="price-meta">' + bandText + multiNote + '</div>' +
+          '<div class="price-meta">업데이트 ' + fmtUpdated(r.entry.updatedAt) + (r.entry.note ? " · " + escapeHtml(r.entry.note) : "") + '</div>';
       } else {
+        var bandHint = state.band !== "all" ? "(" + BAND_LABELS[state.band] + ")" : "";
         priceCell =
           '<span class="datetype-chip ' + r.dtype + '">' + dateTypeLabel(r.dtype) + '</span><br>' +
-          '<span class="price-empty">가격 미입력</span>';
+          '<span class="price-empty">가격 미입력' + bandHint + '</span>';
       }
 
       tr.innerHTML =
@@ -698,17 +764,43 @@
 
       var editRow = document.createElement("tr");
       editRow.className = "edit-row";
-      editRow.style.display = "none";
+      editRow.style.display = state.expanded[r.id] ? "" : "none";
       editRow.dataset.editFor = r.id;
-      var p = state.prices[r.id] || {};
+      var existing = entriesFor(r.id).slice().sort(function(a,b){
+        if(a.dateType !== b.dateType) return a.dateType.localeCompare(b.dateType);
+        return a.fee - b.fee;
+      });
+      var entryListHtml = existing.length
+        ? existing.map(function(e){
+            return '<div class="entry-row">' +
+              '<span class="datetype-chip ' + e.dateType + '">' + dateTypeLabel(e.dateType) + '</span>' +
+              '<span class="band-chip">' + BAND_LABELS[e.band] + (e.customLabel ? " · " + escapeHtml(e.customLabel) : "") + '</span>' +
+              (e.note ? '<span class="price-meta">' + escapeHtml(e.note) + '</span>' : '') +
+              '<span class="price-value">' + fmtWon(e.fee) + '</span>' +
+              '<button class="btn small danger del-entry-btn" data-course="' + r.id + '" data-entry="' + e.id + '">삭제</button>' +
+            '</div>';
+          }).join("")
+        : '<p class="price-empty" style="margin:0 0 10px;">등록된 가격이 없습니다. 아래에서 시간대별로 추가하세요.</p>';
+
       editRow.innerHTML =
-        '<td colspan="5"><div class="edit-grid">' +
-          editField("평일 그린피", r.id, "weekday", p.weekday) +
-          editField("주말 그린피", r.id, "weekend", p.weekend) +
-          editField("공휴일 그린피", r.id, "holiday", p.holiday) +
+        '<td colspan="5">' +
+        '<div class="entry-list">' + entryListHtml + '</div>' +
+        '<div class="edit-grid">' +
+          '<div class="edit-field"><label>날짜유형</label><select id="newDtype-' + r.id + '">' +
+            '<option value="weekday">평일</option><option value="weekend">주말</option><option value="holiday">공휴일</option>' +
+          '</select></div>' +
+          '<div class="edit-field"><label>시간대</label><select id="newBand-' + r.id + '">' +
+            '<option value="dawn">새벽/1부</option><option value="morning">오전/2부</option>' +
+            '<option value="afternoon">오후/3부</option><option value="twilight">트와일라잇</option><option value="night">야간</option>' +
+          '</select></div>' +
+          '<div class="edit-field"><label>정확한 시간(선택)</label><input type="text" id="newLabel-' + r.id + '" placeholder="예: 06:00~07:30"></div>' +
+          '<div class="edit-field"><label>그린피(원)</label><input type="number" min="0" step="1000" id="newFee-' + r.id + '" placeholder="예: 180000"></div>' +
+          '<div class="edit-field"><label>메모(선택)</label><input type="text" id="newNote-' + r.id + '" placeholder="예: 카트비 포함"></div>' +
         '</div>' +
-        '<div class="edit-field" style="margin-bottom:10px;"><label>메모(선택)</label><input type="text" id="note-' + r.id + '" value="' + escapeAttr((p.weekday && p.weekday.note) || "") + '" placeholder="예: 카트비 포함, 캐디피 별도"></div>' +
-        '<div class="edit-actions"><button class="btn save-price-btn" data-id="' + r.id + '">저장</button></div></td>';
+        '<div class="edit-actions">' +
+          '<span class="msg" id="addPriceMsg-' + r.id + '"></span>' +
+          '<button class="btn primary add-price-btn" data-id="' + r.id + '">시간대 가격 추가</button>' +
+        '</div></td>';
       tbody.appendChild(editRow);
     });
 
@@ -727,47 +819,67 @@
     bindRowEvents();
   }
 
-  function editField(label, id, key, entry){
-    var val = entry && typeof entry.fee === "number" ? entry.fee : "";
-    return '<div class="edit-field"><label>' + label + '(원)</label>' +
-      '<input type="number" min="0" step="1000" id="fee-' + key + '-' + id + '" value="' + val + '" placeholder="예: 180000"></div>';
-  }
-
   function escapeHtml(s){
     return String(s).replace(/[&<>"']/g, function(c){
       return {"&":"&amp;","<":"&lt;",">":"&gt;",'"':"&quot;","'":"&#39;"}[c];
     });
   }
-  function escapeAttr(s){ return escapeHtml(s); }
-
   function bindRowEvents(){
     document.querySelectorAll(".edit-btn").forEach(function(btn){
       btn.onclick = function(){
         var id = btn.dataset.id;
-        var row = document.querySelector('tr[data-edit-for="' + id + '"]');
-        if(row) row.style.display = row.style.display === "none" ? "" : "none";
+        state.expanded[id] = !state.expanded[id];
+        render();
       };
     });
-    document.querySelectorAll(".save-price-btn").forEach(function(btn){
-      btn.onclick = function(){ savePrice(btn.dataset.id); };
+    document.querySelectorAll(".add-price-btn").forEach(function(btn){
+      btn.onclick = function(){ addPriceEntry(btn.dataset.id); };
+    });
+    document.querySelectorAll(".del-entry-btn").forEach(function(btn){
+      btn.onclick = function(){ deletePriceEntry(btn.dataset.course, btn.dataset.entry); };
     });
   }
 
-  function savePrice(id){
-    var note = (document.getElementById("note-" + id) || {}).value || "";
-    var now = new Date().toISOString();
-    var body = {};
-    ["weekday","weekend","holiday"].forEach(function(key){
-      var el = document.getElementById("fee-" + key + "-" + id);
-      var v = el && el.value !== "" ? Number(el.value) : null;
-      if(v !== null && !isNaN(v)){
-        body[key] = {fee: v, updatedAt: now, note: note};
-      }
-    });
-    state.prices[id] = Object.assign({}, state.prices[id], body);
+  function writePrices(courseId, entries){
+    state.prices[courseId] = {entries: entries};
     if(state.db){
-      state.db.collection("prices").doc(id).set(state.prices[id]).catch(function(){});
+      state.db.collection("prices").doc(courseId).set({entries: entries}).catch(function(){});
     }
+  }
+
+  function addPriceEntry(courseId){
+    var dtypeEl = document.getElementById("newDtype-" + courseId);
+    var bandEl = document.getElementById("newBand-" + courseId);
+    var labelEl = document.getElementById("newLabel-" + courseId);
+    var feeEl = document.getElementById("newFee-" + courseId);
+    var noteEl = document.getElementById("newNote-" + courseId);
+    var msgEl = document.getElementById("addPriceMsg-" + courseId);
+    var fee = Number(feeEl.value);
+    if(!fee || fee <= 0 || isNaN(fee)){
+      msgEl.className = "msg err";
+      msgEl.textContent = "그린피를 입력하세요.";
+      return;
+    }
+    var entry = {
+      id: genId(),
+      dateType: dtypeEl.value,
+      band: bandEl.value,
+      customLabel: labelEl.value.trim(),
+      fee: fee,
+      note: noteEl.value.trim(),
+      updatedAt: new Date().toISOString()
+    };
+    var entries = entriesFor(courseId).slice();
+    entries.push(entry);
+    state.expanded[courseId] = true;
+    writePrices(courseId, entries);
+    render();
+  }
+
+  function deletePriceEntry(courseId, entryId){
+    var entries = entriesFor(courseId).filter(function(e){ return e.id !== entryId; });
+    state.expanded[courseId] = true;
+    writePrices(courseId, entries);
     render();
   }
 
@@ -857,6 +969,10 @@
   });
   document.getElementById("sortSelect").addEventListener("change", function(e){
     state.sortKey = e.target.value;
+    render();
+  });
+  document.getElementById("bandSelect").addEventListener("change", function(e){
+    state.band = e.target.value;
     render();
   });
 
