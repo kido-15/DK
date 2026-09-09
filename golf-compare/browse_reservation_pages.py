@@ -41,6 +41,8 @@ LOGIN_WALL_HINTS = ("로그인이 필요", "로그인 후", "로그인해주세�
 LOGIN_URL_HINTS = ("login", "signin", "member/login")
 RESERVATION_LINK_KEYWORDS = ["실시간예약", "온라인예약", "티타임예약", "예약하기", "예약안내", "예약", "Booking", "Reservation"]
 SEARCH_BUTTON_KEYWORDS = ["조회하기", "예약조회", "조회", "검색", "확인", "Search"]
+UNAVAILABLE_HINTS = ("마감", "예약완료", "매진", "예약불가", "선택불가", "종료", "부킹마감")
+DISABLED_SELECTOR = "[disabled], .disabled, .soldout, .sold-out, .closed, button:disabled"
 
 
 def looks_like_login_wall(page, text):
@@ -88,6 +90,48 @@ def extract_hits(text, max_price=None):
         if line not in seen:
             seen.add(line)
             out.append(entry)
+    return out
+
+
+def extract_available_slots(page, max_price=None):
+    """<tr> 단위로 훑어서, 시간+가격이 있고 "마감/예약불가" 표시나 비활성화된
+    버튼이 없는(=실제로 예약 가능해 보이는) 행만 남긴다.
+
+    기존 extract_hits는 화면 텍스트를 통째로 줄 단위로 훑어서 시간/가격
+    패턴만 봤기 때문에, 이미 마감된 시간도 그냥 다 같이 잡혔다(실제로 더크로스비GC
+    새벽 18홀에서 예약 불가한 시간이 섞여 나온 문제). 행 단위로 보면 그 행 안에
+    "마감" 같은 문구나 disabled 버튼이 있는지 확인할 수 있어 더 정확하다.
+    """
+    out = []
+    try:
+        rows = page.locator("tr")
+        n = min(rows.count(), 500)
+    except Exception:
+        return out
+
+    for i in range(n):
+        row = rows.nth(i)
+        try:
+            text = (row.inner_text() or "").strip()
+        except Exception:
+            continue
+        if not text or not TIME_RE.search(text):
+            continue
+        nums = [int(m.replace(",", "")) for m in PRICE_NUM_RE.findall(text)]
+        if not (WON_AMOUNT_RE.search(text) or nums):
+            continue
+        if any(h in text for h in UNAVAILABLE_HINTS):
+            continue
+        try:
+            if row.locator(DISABLED_SELECTOR).count() > 0:
+                continue
+        except Exception:
+            pass
+        if max_price is not None and (not nums or min(nums) > max_price):
+            continue
+        line = " | ".join(ln.strip() for ln in text.splitlines() if ln.strip())
+        if line and line not in out:
+            out.append(line)
     return out
 
 
@@ -340,15 +384,38 @@ def main():
                     page.wait_for_load_state("networkidle", timeout=8000)
                 except Exception:
                     pass
+
+                price_note = f", {args.max_price:,}원 이하만" if args.max_price is not None else ""
+
+                # 1) 행(<tr>) 단위로 "마감/예약불가" 표시나 비활성화 버튼이 없는,
+                #    실제로 예약 가능해 보이는 시간만 우선 찾는다.
+                avail_hits = extract_available_slots(page, max_price=args.max_price)
+                if avail_hits:
+                    out_lines.append(
+                        f"-> {args.date} 화면({page.url}, 날짜선택방식: {method}{price_note}) "
+                        f"예약 가능해 보이는 시간 {len(avail_hits)}개:"
+                    )
+                    for h in avail_hits[:40]:
+                        out_lines.append("   " + h)
+                    print(f"  -> 예약 가능 {len(avail_hits)}개")
+                    summary.append((name, len(avail_hits)))
+                    out_lines.append("")
+                    time.sleep(0.5)
+                    continue
+
+                # 2) 표가 <tr> 구조가 아니라 행 단위 판정이 안 되는 사이트를 위한 대체 경로.
+                #    이 경로는 마감/예약불가 여부를 확인 못 하므로 그 사실을 명시한다.
                 text = page.inner_text("body")
                 hits = extract_hits(text, max_price=args.max_price)
                 if hits:
-                    price_note = f", {args.max_price:,}원 이하만" if args.max_price is not None else ""
-                    out_lines.append(f"-> {args.date} 화면({page.url}, 날짜선택방식: {method}{price_note})에서 발견 {len(hits)}개:")
+                    out_lines.append(
+                        f"-> {args.date} 화면({page.url}, 날짜선택방식: {method}{price_note})에서 발견 {len(hits)}개 "
+                        f"(⚠ 마감/예약불가 여부 확인 안 됨 — 표가 <tr> 구조가 아니라서 행 단위 판정 실패, 직접 확인 필요):"
+                    )
                     for h in hits[:40]:
                         out_lines.append("   " + h.replace("\n", "\n   "))
-                    print(f"  -> {len(hits)}개 발견")
-                    summary.append((name, len(hits)))
+                    print(f"  -> {len(hits)}개 발견(마감 여부 미확인)")
+                    summary.append((name + " (마감 여부 미확인)", len(hits)))
                 elif args.max_price is not None:
                     out_lines.append(f"-> 날짜는 선택({method})했지만 {args.max_price:,}원 이하로 보이는 항목을 찾지 못함 (화면: {page.url}).")
                     print("  -> 조건에 맞는 항목 없음")
