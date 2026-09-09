@@ -1,11 +1,11 @@
 [
-  {"name": "88컨트리클럽", "region": "경기 용인시", "homepage": "https://www.88countryclub.co.kr/"},
+  {"name": "88컨트리클럽", "region": "경기 용인시", "homepage": "https://www.88countryclub.co.kr/", "feeUrl": "https://www.88countryclub.co.kr/Guide/Fees.aspx"},
   {"name": "레이크사이드CC", "region": "경기 용인시", "homepage": "https://lakesidecc.co.kr/"},
   {"name": "남부CC", "region": "경기 용인시", "homepage": "https://www.namboocc.co.kr/"},
   {"name": "신원CC", "region": "경기 용인시", "homepage": "https://www.swcc.co.kr/"},
   {"name": "프라자CC 용인", "region": "경기 용인시", "homepage": "http://www.plazacc.co.kr/"},
   {"name": "이천 실크밸리 골프클럽", "region": "경기 이천시", "homepage": "https://silkvalleygc.co.kr/"},
-  {"name": "신라CC", "region": "경기 여주시", "homepage": "https://www.onetheclub.com/shilla/main"},
+  {"name": "신라CC", "region": "경기 여주시", "homepage": "https://www.onetheclub.com/shilla/main", "feeUrl": "https://www.onetheclub.com/shilla/charge"},
   {"name": "사우스스프링스CC", "region": "경기 이천시", "homepage": "https://www.sscc.co.kr/"},
   {"name": "더크로스비GC", "region": "경기 이천시", "homepage": "https://www.thecrosbygc.co.kr/"},
   {"name": "블랙스톤이천CC", "region": "경기 이천시", "homepage": "https://www.blackstoneresort.com/"},
@@ -20,7 +20,7 @@
   {"name": "베어크리크GC", "region": "경기 포천시", "homepage": "https://www.bearcreek.co.kr/"},
   {"name": "서원힐스CC", "region": "경기 파주시", "homepage": "https://www.seowongolf.co.kr/hills/main"},
   {"name": "블루헤런CC", "region": "경기 여주시", "homepage": "https://www.blueheron.co.kr/"},
-  {"name": "서원밸리CC", "region": "경기 파주시", "homepage": "https://www.seowongolf.co.kr/valley/main"},
-  {"name": "안성컨트리클럽", "region": "경기 안성시", "homepage": "https://www.ansungcc.co.kr/"},
+  {"name": "서원밸리CC", "region": "경기 파주시", "homepage": "https://www.seowongolf.co.kr/valley/main", "feeUrl": "https://www.seowongolf.co.kr/valley/reservation/fee"},
+  {"name": "안성컨트리클럽", "region": "경기 안성시", "homepage": "https://www.ansungcc.co.kr/", "feeUrl": "https://www.ansungcc.co.kr/mobile/Reservation/Guide.aspx"},
   {"name": "라비돌CC", "region": "경기 화성시", "homepage": "https://laviedor.com/"}
 ]

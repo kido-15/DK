@@ -130,7 +130,7 @@ def main():
     out_lines = []
     for i, course in enumerate(courses, 1):
         name = course["name"]
-        url = course.get("homepage")
+        url = course.get("feeUrl") or course.get("homepage")
         out_lines.append("=" * 60)
         out_lines.append(f"[{i}/{len(courses)}] {name}  ({course.get('region','')})")
         out_lines.append(f"URL: {url or '(등록된 홈페이지 없음)'}")

@@ -101,7 +101,7 @@ def main():
 
         for i, course in enumerate(courses, 1):
             name = course["name"]
-            url = course.get("homepage")
+            url = course.get("feeUrl") or course.get("homepage")
             out_lines.append("=" * 60)
             out_lines.append(f"[{i}/{len(courses)}] {name}  ({course.get('region', '')})")
             out_lines.append(f"URL: {url or '(등록된 홈페이지 없음)'}")
@@ -119,16 +119,23 @@ def main():
                     pass
                 try_click_fee_link(page)
 
+                target_url = page.url
                 text = page.inner_text("body")
                 if any(hint in text for hint in LOGIN_WALL_HINTS):
                     print(f"  -> '{name}' 페이지가 로그인을 요구하는 것 같습니다.")
                     print("     뜬 브라우저 창에서 로그인을 마친 뒤, 여기로 돌아와 Enter를 눌러주세요.")
                     print("     (그냥 넘어가려면 아무것도 안 하고 Enter만 눌러도 됩니다)")
                     input("     계속하려면 Enter >> ")
+                    # 로그인 후 홈으로 리다이렉트되는 사이트가 많아, 원래 보려던 요금 페이지로 다시 이동한다.
+                    try:
+                        page.goto(target_url, wait_until="load", timeout=15000)
+                    except Exception:
+                        pass
                     try:
                         page.wait_for_load_state("networkidle", timeout=8000)
                     except Exception:
                         pass
+                    try_click_fee_link(page)
                     text = page.inner_text("body")
 
                 hits = extract_hits(text)
