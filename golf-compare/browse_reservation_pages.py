@@ -106,10 +106,15 @@ def main():
     parser = argparse.ArgumentParser(description=__doc__, formatter_class=argparse.RawDescriptionHelpFormatter)
     parser.add_argument("--input", default=os.path.join(os.path.dirname(__file__), "courses_seed.json"))
     parser.add_argument("--output", default="reservation_dump.txt")
-    parser.add_argument("--date", required=True, help="확인할 날짜 (YYYY-MM-DD)")
+    parser.add_argument("--date", required=True, help="확인할 날짜 (YYYY-MM-DD, 예: 2026-09-12)")
     parser.add_argument("--only", default=None, help="쉼표로 구분한 골프장 이름 목록만 실행")
+    parser.add_argument("--exclude", default=None, help="쉼표로 구분한 골프장 이름을 제외하고 실행")
     parser.add_argument("--headless", action="store_true")
     args = parser.parse_args()
+
+    if not re.fullmatch(r"\d{4}-\d{2}-\d{2}", args.date):
+        print(f"--date 형식이 잘못됐습니다: '{args.date}' (예: 2026-09-12 처럼 숫자와 하이픈만)", file=sys.stderr)
+        sys.exit(1)
 
     try:
         from playwright.sync_api import sync_playwright
@@ -122,6 +127,9 @@ def main():
     if args.only:
         wanted = {n.strip() for n in args.only.split(",")}
         courses = [c for c in courses if c["name"] in wanted]
+    if args.exclude:
+        excluded = {n.strip() for n in args.exclude.split(",")}
+        courses = [c for c in courses if c["name"] not in excluded]
 
     out_lines = [f"조회 날짜: {args.date}", ""]
     with sync_playwright() as p:
