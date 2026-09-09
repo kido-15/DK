@@ -4,3 +4,7 @@ __pycache__/
 # 로컬 실행 결과물 (사용자 PC에서 생성되는 파일, 저장소에는 불필요)
 golf-compare/distances_output.json
 golf-compare/fee_pages_dump.txt
+golf-compare/fee_pages_browsed.txt
+
+# 브라우저 로그인 세션(쿠키 등) — 절대 커밋하면 안 됨
+golf-compare/.browser_profile/
