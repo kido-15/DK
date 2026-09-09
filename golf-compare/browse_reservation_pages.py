@@ -65,6 +65,55 @@ def try_click_search_button(page):
             continue
     return False
 
+
+def try_select_course(page):
+    """일부 사이트(베어크리크GC 등)는 날짜뿐 아니라 코스도 골라야 시간표가 뜬다.
+
+    베어크리크GC URL에 "#aCourseSel"가 붙는 걸로 봐서 코스 선택 앵커/버튼이
+    있는 구조로 보임. id/name에 "course"류 이름이 들어간 요소를 우선 찾고,
+    없으면 일반 select 드롭다운의 첫 유효 옵션을, 그래도 없으면 "코스" 텍스트를
+    클릭해본다. 어떤 코스인지는 모르니 그냥 첫 번째로 되는 걸 선택한다.
+    """
+    try:
+        loc = page.locator(
+            "[id*='coursesel' i], [href*='coursesel' i], [name*='coursesel' i], "
+            "[id*='course' i] a, [id*='course' i] button"
+        ).first
+        if loc.count() > 0:
+            loc.click(timeout=1500)
+            page.wait_for_timeout(800)
+            return True
+    except Exception:
+        pass
+
+    try:
+        selects = page.locator("select")
+        n = min(selects.count(), 5)
+        for i in range(n):
+            sel = selects.nth(i)
+            try:
+                options = sel.locator("option")
+                for oi in range(options.count()):
+                    val = options.nth(oi).get_attribute("value")
+                    if val:
+                        sel.select_option(value=val)
+                        page.wait_for_timeout(800)
+                        return True
+            except Exception:
+                continue
+    except Exception:
+        pass
+
+    try:
+        loc = page.get_by_text("코스", exact=False).first
+        if loc.count() > 0:
+            loc.click(timeout=1500)
+            page.wait_for_timeout(800)
+            return True
+    except Exception:
+        pass
+    return False
+
 PROFILE_DIR = os.path.join(os.path.dirname(__file__), ".browser_profile")
 DEBUG_DIR = os.path.join(os.path.dirname(__file__), "debug_pages")
 
@@ -480,6 +529,12 @@ def main():
                     out_lines.append("")
                     continue
 
+                if try_select_course(page):
+                    try:
+                        page.wait_for_load_state("networkidle", timeout=8000)
+                    except Exception:
+                        pass
+
                 try_click_search_button(page)
                 try:
                     page.wait_for_load_state("networkidle", timeout=8000)
@@ -518,11 +573,15 @@ def main():
                     print(f"  -> {len(hits)}개 발견(마감 여부 미확인)")
                     summary.append((name + " (마감 여부 미확인)", len(hits)))
                 elif args.max_price is not None:
+                    html_path, png_path = dump_debug_page(page, name)
                     out_lines.append(f"-> 날짜는 선택({method})했지만 {args.max_price:,}원 이하로 보이는 항목을 찾지 못함 (화면: {page.url}).")
+                    out_lines.append(f"   디버그 정보 저장: {html_path}" + (f", {png_path}" if png_path else ""))
                     print("  -> 조건에 맞는 항목 없음")
                 else:
+                    html_path, png_path = dump_debug_page(page, name)
                     out_lines.append(f"-> 날짜는 선택({method})했지만 시간/가격으로 보이는 내용을 찾지 못함 (화면: {page.url}).")
-                    print("  -> 후보 없음")
+                    out_lines.append(f"   디버그 정보 저장: {html_path}" + (f", {png_path}" if png_path else ""))
+                    print(f"  -> 후보 없음 (디버그: {html_path})")
             except Exception as e:  # noqa: BLE001
                 out_lines.append(f"-> 오류: {e}")
                 print(f"  -> 오류: {e}")
