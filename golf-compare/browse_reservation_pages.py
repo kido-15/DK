@@ -66,6 +66,29 @@ def try_click_search_button(page):
     return False
 
 
+CLUB_SUFFIX_RE = re.compile(r"(컨트리클럽|골프클럽|골프리조트|리조트|클럽|CC|GC)$")
+
+
+def try_select_club_tab(page, course_name):
+    """clublonge.com(남양주CC 등)처럼 여러 골프장을 한 페이지에서 통합 예약하는
+    사이트를 위해, 골프장 이름(또는 CC/GC 등 접미사를 뗀 짧은 이름)이 적힌
+    탭/필터를 클릭해본다. 안 눌러도 되는 사이트에서는 그냥 조용히 실패한다.
+    """
+    short_name = CLUB_SUFFIX_RE.sub("", course_name).strip()
+    for text in ([course_name, short_name] if short_name and short_name != course_name else [course_name]):
+        if not text:
+            continue
+        try:
+            loc = page.get_by_text(text, exact=False).first
+            if loc.count() > 0:
+                loc.click(timeout=1500)
+                page.wait_for_timeout(800)
+                return True
+        except Exception:
+            continue
+    return False
+
+
 def try_select_course(page):
     """일부 사이트(베어크리크GC 등)는 날짜뿐 아니라 코스도 골라야 시간표가 뜬다.
 
@@ -301,20 +324,25 @@ DISABLED_CLASS_HINTS = ("disabled", "past", "inactive", "unavailable", "off")
 
 
 def _find_day_cell(page, day):
-    """day(문자열 숫자)와 셀 텍스트의 맨 앞 숫자가 정확히 일치하는, 비활성화되지 않은 셀을 찾는다.
+    """day(문자열 숫자)와 셀 텍스트에서 숫자만 뽑았을 때 정확히 일치하는,
+    비활성화되지 않은 셀을 찾는다.
 
-    ":has-text('20')"는 부분 일치라 "18홀", "2인" 같은 것도 걸리므로, 후보를 넓게 모은 뒤
-    각 셀 텍스트의 맨 앞 숫자 토큰만 비교한다(요일 표기가 같이 있는 "20 토" 같은 셀도 대응).
+    ":has-text('20')"는 부분 일치라 "18홀", "120,000원" 같은 것도 걸리므로,
+    후보를 넓게 모은 뒤 셀 텍스트에서 숫자가 아닌 문자를 다 뺀 결과가 day와
+    정확히 같은지 비교한다. "일20"(요일+일자가 붙어 나오는 날짜 스트립 형태)도
+    이렇게 하면 잡히고, "120,000원"처럼 숫자가 더 있는 건 걸러진다.
     """
-    for selector in ["td", "button", "a", "div", "span"]:
+    for selector in ["td", "button", "a", "div", "span", "li"]:
         try:
             candidates = page.locator(f"{selector}:has-text('{day}')")
-            n = min(candidates.count(), 40)
+            n = min(candidates.count(), 60)
             for i in range(n):
                 cell = candidates.nth(i)
                 raw = (cell.inner_text() or "").strip()
-                m = re.match(r"\d+", raw)
-                if not m or m.group(0) != day:
+                if not raw or len(raw) > 15:
+                    continue
+                digits_only = re.sub(r"\D", "", raw)
+                if digits_only != day:
                     continue
                 cls = (cell.get_attribute("class") or "").lower()
                 if any(h in cls for h in DISABLED_CLASS_HINTS):
@@ -519,6 +547,12 @@ def main():
                     except Exception:
                         pass
                     try_click_keyword_link(page, RESERVATION_LINK_KEYWORDS)
+
+                if try_select_club_tab(page, name):
+                    try:
+                        page.wait_for_load_state("networkidle", timeout=8000)
+                    except Exception:
+                        pass
 
                 method = try_select_date(page, args.date)
                 if not method:
