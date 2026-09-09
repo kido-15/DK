@@ -183,6 +183,16 @@ def main():
         context.add_init_script("Object.defineProperty(navigator, 'webdriver', {get: () => undefined})")
         page = context.new_page()
 
+        # Playwright는 alert()/confirm() 같은 브라우저 네이티브 팝업을 기본적으로
+        # 사용자가 보기도 전에 자동으로 닫아버린다(핸들러를 등록 안 하면 즉시 dismiss).
+        # "로그인 실패", "회원가입이 필요합니다" 같은 안내가 화면에 뜨자마자
+        # 사라지는 것처럼 보이는 원인이 이것 — 최소한 메시지 내용을 터미널에 출력해서
+        # 무슨 안내였는지는 알 수 있게 한다.
+        def _on_dialog(dialog):
+            print(f"  [팝업 메시지] ({dialog.type}) {dialog.message}")
+            dialog.dismiss()
+        page.on("dialog", _on_dialog)
+
         for i, course in enumerate(courses, 1):
             name = course["name"]
             url = course.get("homepage")
