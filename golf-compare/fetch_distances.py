@@ -23,11 +23,20 @@
 import argparse
 import json
 import os
+import ssl
 import sys
 import time
 import urllib.error
 import urllib.parse
 import urllib.request
+
+try:
+    import certifi
+    SSL_CONTEXT = ssl.create_default_context(cafile=certifi.where())
+except ImportError:
+    SSL_CONTEXT = None  # macOS의 python.org 설치본에서 인증서 체인이 안 잡히는 경우 대비.
+    print("참고: certifi가 없어 기본 SSL 설정을 사용합니다. 인증서 오류가 나면", file=sys.stderr)
+    print("      'pip3 install certifi' 실행 후 다시 시도하세요.", file=sys.stderr)
 
 KAKAO_LOCAL_KEYWORD_URL = "https://dapi.kakao.com/v2/local/search/keyword.json"
 KAKAO_DIRECTIONS_URL = "https://apis-navi.kakaomobility.com/v1/directions"
@@ -38,7 +47,7 @@ def kakao_get(url, api_key, params):
     query = urllib.parse.urlencode(params)
     req = urllib.request.Request(url + "?" + query, headers={"Authorization": "KakaoAK " + api_key})
     try:
-        with urllib.request.urlopen(req, timeout=10) as resp:
+        with urllib.request.urlopen(req, timeout=10, context=SSL_CONTEXT) as resp:
             return json.loads(resp.read().decode("utf-8"))
     except urllib.error.HTTPError as e:
         body = e.read().decode("utf-8", errors="replace")

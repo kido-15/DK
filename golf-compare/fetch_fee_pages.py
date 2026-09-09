@@ -32,10 +32,19 @@ import html
 import json
 import os
 import re
+import ssl
 import sys
 import time
 import urllib.error
 import urllib.request
+
+try:
+    import certifi
+    SSL_CONTEXT = ssl.create_default_context(cafile=certifi.where())
+except ImportError:
+    SSL_CONTEXT = None  # macOS의 python.org 설치본에서 인증서 체인이 안 잡히는 경우 대비.
+    print("참고: certifi가 없어 기본 SSL 설정을 사용합니다. 인증서 오류가 나면", file=sys.stderr)
+    print("      'pip3 install certifi' 실행 후 다시 시도하세요.", file=sys.stderr)
 
 WON_LINE_RE = re.compile(r"[가-힣A-Za-z0-9./~:\-\s]{0,20}[0-9][0-9,]{3,}\s*원[가-힣A-Za-z0-9./~:\-\s]{0,20}")
 TAG_RE = re.compile(r"<(script|style)[^>]*>.*?</\1>", re.IGNORECASE | re.DOTALL)
@@ -52,7 +61,7 @@ def strip_html(raw):
 
 def fetch(url):
     req = urllib.request.Request(url, headers={"User-Agent": "Mozilla/5.0 (compatible; FeePageChecker/1.0)"})
-    with urllib.request.urlopen(req, timeout=12) as resp:
+    with urllib.request.urlopen(req, timeout=12, context=SSL_CONTEXT) as resp:
         charset = resp.headers.get_content_charset() or "utf-8"
         return resp.read().decode(charset, errors="replace")
 
