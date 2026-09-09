@@ -230,6 +230,15 @@
   tbody tr:hover{background:var(--surface-2);}
   .course-name{font-weight:700;}
   .course-region{color:var(--text-muted);font-size:12.5px;margin-top:2px;}
+  .homepage-link{
+    font-family:"Noto Sans KR",sans-serif;
+    font-weight:500;
+    font-size:11.5px;
+    color:var(--accent);
+    text-decoration:none;
+    white-space:nowrap;
+  }
+  .homepage-link:hover{text-decoration:underline;}
 
   .pill{
     display:inline-flex;
@@ -524,6 +533,10 @@
           <label for="newEstMax">추정 이동시간 최대(분)</label>
           <input type="number" id="newEstMax" min="0" step="5" placeholder="70">
         </div>
+        <div>
+          <label for="newHomepage">홈페이지(선택)</label>
+          <input type="text" id="newHomepage" placeholder="https://...">
+        </div>
       </div>
       <button class="btn primary" id="addCourseBtn">골프장 추가</button>
       <div class="msg" id="addCourseMsg"></div>
@@ -576,34 +589,37 @@
     "2026-12-25"
   ];
 
-  // 강남 기준 90분권 후보 — 지역 평균 이동시간 추정치(실측 아님). 스크립트로 실측 전까지 사용되는 오프라인 폴백 데이터이기도 함.
+  // 강남 기준 90분권 후보 — 지역 평균 이동시간 추정치(실측 아님, 스크립트로 실측 전까지 사용되는 오프라인 폴백 데이터).
+  // 이름/지역/홈페이지는 2026-09-09 웹 검색으로 실재 여부를 재확인한 값. 검색으로도 확인되지 않은
+  // "미사관광CC"(하남), "다이아몬드CC"(남양주 — 검색된 동명 사이트는 경남 양산 소재로 추정), "세경CC"(남양주),
+  // "이천CC"(이천 — 동명 골프장 확인 안 됨)는 제거했고, "아시아나CC"는 실제로는 용인 소재라 안성 슬롯을
+  // 실재하는 "안성컨트리클럽"으로, "라비에벨CC"(화성 — 실제로는 강원 홍천 소재로 90분권 밖)는 화성에 실재하는
+  // "라비돌CC"로 교체했습니다. homepage는 검색으로 확인된 공식 홈페이지 주소(참고용, 접속 불가 시 재검색 필요).
   var FALLBACK_COURSES = [
-    {id:"cc88",name:"88컨트리클럽",region:"경기 용인시",estMin:40,estMax:60},
-    {id:"lakeside",name:"레이크사이드CC",region:"경기 용인시",estMin:45,estMax:65},
-    {id:"nambu",name:"남부CC",region:"경기 용인시",estMin:40,estMax:60},
-    {id:"shinwon",name:"신원CC",region:"경기 용인시",estMin:45,estMax:65},
-    {id:"plazayongin",name:"프라자CC 용인",region:"경기 용인시",estMin:40,estMax:60},
-    {id:"icheoncc",name:"이천CC",region:"경기 이천시",estMin:55,estMax:80},
-    {id:"shilla",name:"신라CC",region:"경기 이천시",estMin:55,estMax:80},
-    {id:"southsprings",name:"사우스스프링스CC",region:"경기 이천시",estMin:60,estMax:85},
-    {id:"crosby",name:"더크로스비GC",region:"경기 이천시",estMin:55,estMax:80},
-    {id:"blackstone",name:"블랙스톤이천CC",region:"경기 이천시",estMin:60,estMax:85},
-    {id:"yeojucc",name:"여주CC",region:"경기 여주시",estMin:65,estMax:90},
-    {id:"newspringville",name:"뉴스프링빌CC",region:"경기 여주시",estMin:65,estMax:90},
-    {id:"victoria",name:"빅토리아CC",region:"경기 여주시",estMin:70,estMax:95},
-    {id:"namchon",name:"남촌CC",region:"경기 광주시",estMin:45,estMax:70},
-    {id:"newseoul",name:"뉴서울CC",region:"경기 광주시",estMin:45,estMax:70},
-    {id:"gonjiam",name:"곤지암CC",region:"경기 광주시",estMin:45,estMax:70},
-    {id:"misa",name:"미사관광CC",region:"경기 하남시",estMin:35,estMax:55},
-    {id:"namseoul",name:"남서울CC",region:"경기 성남시",estMin:35,estMax:55},
-    {id:"diamond",name:"다이아몬드CC",region:"경기 남양주시",estMin:45,estMax:70},
-    {id:"segyeong",name:"세경CC",region:"경기 남양주시",estMin:45,estMax:70},
-    {id:"bearcreek",name:"베어크리크GC",region:"경기 가평군",estMin:70,estMax:95},
-    {id:"seowonhills",name:"서원힐스CC",region:"경기 양평군",estMin:60,estMax:85},
-    {id:"blueheron",name:"블루헤런CC",region:"경기 양평군",estMin:60,estMax:85},
-    {id:"seowonvalley",name:"서원밸리CC",region:"경기 파주시",estMin:55,estMax:80},
-    {id:"asiana",name:"아시아나CC",region:"경기 안성시",estMin:65,estMax:90},
-    {id:"laviebelle",name:"라비에벨CC",region:"경기 화성시",estMin:55,estMax:80}
+    {id:"cc88",name:"88컨트리클럽",region:"경기 용인시",estMin:40,estMax:60,homepage:"https://www.88countryclub.co.kr/"},
+    {id:"lakeside",name:"레이크사이드CC",region:"경기 용인시",estMin:45,estMax:65,homepage:"https://lakesidecc.co.kr/"},
+    {id:"nambu",name:"남부CC",region:"경기 용인시",estMin:40,estMax:60,homepage:"https://www.namboocc.co.kr/"},
+    {id:"shinwon",name:"신원CC",region:"경기 용인시",estMin:45,estMax:65,homepage:"https://www.swcc.co.kr/"},
+    {id:"plazayongin",name:"프라자CC 용인",region:"경기 용인시",estMin:40,estMax:60,homepage:"http://www.plazacc.co.kr/"},
+    {id:"silkvalley",name:"이천 실크밸리 골프클럽",region:"경기 이천시",estMin:55,estMax:80,homepage:"https://silkvalleygc.co.kr/"},
+    {id:"shilla",name:"신라CC",region:"경기 여주시",estMin:65,estMax:90,homepage:"https://www.onetheclub.com/shilla/main"},
+    {id:"southsprings",name:"사우스스프링스CC",region:"경기 이천시",estMin:60,estMax:85,homepage:"https://www.sscc.co.kr/"},
+    {id:"crosby",name:"더크로스비GC",region:"경기 이천시",estMin:55,estMax:80,homepage:"https://www.thecrosbygc.co.kr/"},
+    {id:"blackstone",name:"블랙스톤이천CC",region:"경기 이천시",estMin:60,estMax:85,homepage:"https://www.blackstoneresort.com/"},
+    {id:"yeojucc",name:"여주CC",region:"경기 여주시",estMin:65,estMax:90,homepage:"https://www.yeojoocc.co.kr/"},
+    {id:"newspringville",name:"뉴스프링빌CC",region:"경기 이천시",estMin:55,estMax:80,homepage:"https://icheon.newspring.co.kr/"},
+    {id:"victoria",name:"빅토리아CC",region:"경기 여주시",estMin:70,estMax:95,homepage:"https://www.victoriagc.co.kr/"},
+    {id:"namchon",name:"남촌CC",region:"경기 광주시",estMin:45,estMax:70,homepage:"https://www.namchoncc.co.kr/"},
+    {id:"newseoul",name:"뉴서울CC",region:"경기 광주시",estMin:45,estMax:70,homepage:null},
+    {id:"gonjiam",name:"곤지암CC",region:"경기 광주시",estMin:45,estMax:70,homepage:"https://www.konjiamgolfclub.co.kr/"},
+    {id:"namseoul",name:"남서울CC",region:"경기 성남시",estMin:35,estMax:55,homepage:"https://nscc.co.kr/"},
+    {id:"namyangju",name:"남양주CC",region:"경기 남양주시",estMin:45,estMax:70,homepage:"http://www.namyangjucc.co.kr/"},
+    {id:"bearcreek",name:"베어크리크GC",region:"경기 포천시",estMin:70,estMax:95,homepage:"https://www.bearcreek.co.kr/"},
+    {id:"seowonhills",name:"서원힐스CC",region:"경기 파주시",estMin:55,estMax:80,homepage:"https://www.seowongolf.co.kr/hills/main"},
+    {id:"blueheron",name:"블루헤런CC",region:"경기 여주시",estMin:65,estMax:90,homepage:"https://www.blueheron.co.kr/"},
+    {id:"seowonvalley",name:"서원밸리CC",region:"경기 파주시",estMin:55,estMax:80,homepage:"https://www.seowongolf.co.kr/valley/main"},
+    {id:"anseong",name:"안성컨트리클럽",region:"경기 안성시",estMin:65,estMax:90,homepage:"https://www.ansungcc.co.kr/"},
+    {id:"laviedor",name:"라비돌CC",region:"경기 화성시",estMin:55,estMax:80,homepage:"https://laviedor.com/"}
   ];
 
   var BAND_LABELS = {
@@ -752,8 +768,11 @@
           '<span class="price-empty">가격 미입력' + bandHint + '</span>';
       }
 
+      var homepageLink = r.course.homepage
+        ? ' <a href="' + escapeHtml(r.course.homepage) + '" target="_blank" rel="noopener" class="homepage-link">홈페이지↗</a>'
+        : '';
       tr.innerHTML =
-        '<td><div class="course-name">' + escapeHtml(r.course.name) + '</div><div class="course-region">' + escapeHtml(r.course.region) + '</div></td>' +
+        '<td><div class="course-name">' + escapeHtml(r.course.name) + homepageLink + '</div><div class="course-region">' + escapeHtml(r.course.region) + '</div></td>' +
         '<td><span class="pill ' + pillClass + '">' + r.driveMinutes + '분</span>' +
           (r.driveVerified ? '<span class="est-tag">실측</span>' : '<span class="est-tag">지역 추정(' + r.course.estMin + '–' + r.course.estMax + '분)</span>') +
         '</td>' +
@@ -895,9 +914,11 @@
       msg.textContent = "이름, 지역, 추정 이동시간(최소/최대)을 모두 입력하세요.";
       return;
     }
+    var homepage = document.getElementById("newHomepage").value.trim();
     var id = slugify(name);
     var course = {
       name: name, region: region, estMin: estMin, estMax: estMax,
+      homepage: homepage || null,
       driveMinutes: null, distanceKm: null, verified: false,
       source: "수동 입력(지역 추정)", updatedAt: new Date().toISOString()
     };
@@ -911,6 +932,7 @@
     document.getElementById("newRegion").value = "";
     document.getElementById("newEstMin").value = "";
     document.getElementById("newEstMax").value = "";
+    document.getElementById("newHomepage").value = "";
     render();
   });
 
@@ -981,6 +1003,7 @@
     FALLBACK_COURSES.forEach(function(c){
       state.courses[c.id] = {
         name:c.name, region:c.region, estMin:c.estMin, estMax:c.estMax,
+        homepage:c.homepage || null,
         driveMinutes:null, distanceKm:null, verified:false,
         source:"지역 평균 추정(경로 미실측)", updatedAt:null
       };
