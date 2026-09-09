@@ -463,6 +463,7 @@
           <option value="afternoon">오후/3부</option>
           <option value="twilight">트와일라잇</option>
           <option value="night">야간</option>
+          <option value="allday">시간대 구분 없음</option>
         </select>
       </div>
       <div class="control">
@@ -627,7 +628,8 @@
     morning: "오전/2부",
     afternoon: "오후/3부",
     twilight: "트와일라잇",
-    night: "야간"
+    night: "야간",
+    allday: "시간대 구분 없음"
   };
 
   var state = {
@@ -811,6 +813,7 @@
           '<div class="edit-field"><label>시간대</label><select id="newBand-' + r.id + '">' +
             '<option value="dawn">새벽/1부</option><option value="morning">오전/2부</option>' +
             '<option value="afternoon">오후/3부</option><option value="twilight">트와일라잇</option><option value="night">야간</option>' +
+            '<option value="allday">시간대 구분 없음</option>' +
           '</select></div>' +
           '<div class="edit-field"><label>정확한 시간(선택)</label><input type="text" id="newLabel-' + r.id + '" placeholder="예: 06:00~07:30"></div>' +
           '<div class="edit-field"><label>그린피(원)</label><input type="number" min="0" step="1000" id="newFee-' + r.id + '" placeholder="예: 180000"></div>' +
