@@ -5,6 +5,7 @@ __pycache__/
 golf-compare/distances_output.json
 golf-compare/fee_pages_dump.txt
 golf-compare/fee_pages_browsed.txt
+golf-compare/reservation_dump.txt
 
 # 브라우저 로그인 세션(쿠키 등) — 절대 커밋하면 안 됨
 golf-compare/.browser_profile/
