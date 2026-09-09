@@ -96,7 +96,15 @@ def main():
             PROFILE_DIR,
             headless=args.headless,
             viewport={"width": 1280, "height": 900},
+            user_agent=(
+                "Mozilla/5.0 (Macintosh; Intel Mac OS X 10_15_7) AppleWebKit/537.36 "
+                "(KHTML, like Gecko) Chrome/124.0.0.0 Safari/537.36"
+            ),
+            args=["--disable-blink-features=AutomationControlled"],
         )
+        # 일부 사이트(특히 로그인/본인인증 팝업)가 자동화 브라우저를 감지해 창을
+        # 강제로 닫아버리는 경우가 있어, navigator.webdriver 흔적을 숨긴다.
+        context.add_init_script("Object.defineProperty(navigator, 'webdriver', {get: () => undefined})")
         page = context.new_page()
 
         for i, course in enumerate(courses, 1):
