@@ -41,7 +41,7 @@ LOGIN_WALL_HINTS = ("로그인이 필요", "로그인 후", "로그인해주세�
 LOGIN_URL_HINTS = ("login", "signin", "member/login")
 RESERVATION_LINK_KEYWORDS = ["실시간예약", "온라인예약", "티타임예약", "예약하기", "예약안내", "예약", "Booking", "Reservation"]
 SEARCH_BUTTON_KEYWORDS = ["조회하기", "예약조회", "조회", "검색", "확인", "Search"]
-UNAVAILABLE_HINTS = ("마감", "예약완료", "매진", "예약불가", "선택불가", "종료", "부킹마감")
+UNAVAILABLE_HINTS = ("마감", "예약완료", "매진", "예약불가", "선택불가", "종료", "부킹마감", "예약중", "대기중", "보류")
 DISABLED_SELECTOR = "[disabled], .disabled, .soldout, .sold-out, .closed, button:disabled"
 
 
