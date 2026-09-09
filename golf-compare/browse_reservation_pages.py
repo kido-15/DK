@@ -108,6 +108,22 @@ def dump_debug_page(page, course_name, max_chars=20000):
             pass
 
     combined = ("\n\n" + "-" * 40 + "\n\n").join(snippets)[:max_chars]
+
+    # 아이콘 하나만 걸리는 등 결과가 너무 부실하면(캘린더가 아직 안 그려졌거나
+    # table/일반적인 class명을 안 쓰는 구조), 스크립트/스타일을 뺀 전체 페이지
+    # HTML을 대신 저장한다 — 뭐라도 있어야 실제 구조를 보고 고칠 수 있다.
+    if len(combined.strip()) < 300:
+        try:
+            full_html = page.content()
+            full_html = re.sub(r"<(script|style)[^>]*>.*?</\1>", "", full_html, flags=re.IGNORECASE | re.DOTALL)
+        except Exception:
+            full_html = ""
+        if full_html.strip():
+            combined = (
+                f"(캘린더로 추정되는 요소가 부실해 전체 페이지 HTML로 대체함)\n\n"
+                + full_html[:max_chars]
+            )
+
     html_path = os.path.join(DEBUG_DIR, f"{safe_name}.html")
     with open(html_path, "w", encoding="utf-8") as f:
         f.write(f"URL: {page.url}\n\n")
@@ -189,12 +205,41 @@ def extract_available_slots(page, max_price=None):
     return out
 
 
+EXCLUDE_LINK_HINTS = ("개인정보", "방침", "약관", "정책", "policy", "privacy", "무단수집", "영상정보")
+
+
 def try_click_keyword_link(page, keywords, timeout=2500):
+    """예약 메뉴로 보이는 링크를 클릭한다.
+
+    베어크리크GC에서 "예약"이라는 글자가 들어간 CCTV/개인정보처리방침 링크를
+    잘못 클릭해서 엉뚱한 페이지로 간 적이 있어서, 1) 링크/버튼 역할을 가진
+    요소를 정확히 일치하는 텍스트로 먼저 찾고, 2) 방침/약관 관련 문구가 섞인
+    후보는 건너뛰도록 했다.
+    """
+    for kw in keywords:
+        for role in ("link", "button"):
+            try:
+                locator = page.get_by_role(role, name=kw, exact=True).first
+                if locator.count() > 0:
+                    text = locator.inner_text() or ""
+                    if any(h in text for h in EXCLUDE_LINK_HINTS):
+                        continue
+                    locator.click(timeout=timeout)
+                    page.wait_for_load_state("networkidle", timeout=10000)
+                    return True
+            except Exception:
+                continue
+
     for kw in keywords:
         try:
-            locator = page.get_by_text(kw, exact=False).first
-            if locator.count() > 0:
-                locator.click(timeout=timeout)
+            candidates = page.get_by_text(kw, exact=False)
+            n = min(candidates.count(), 10)
+            for i in range(n):
+                loc = candidates.nth(i)
+                text = loc.inner_text() or ""
+                if any(h in text for h in EXCLUDE_LINK_HINTS):
+                    continue
+                loc.click(timeout=timeout)
                 page.wait_for_load_state("networkidle", timeout=10000)
                 return True
         except Exception:
