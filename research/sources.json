@@ -1,10 +1,9 @@
 {
   "_comment": [
     "AI 연구자료 모니터링 대상 목록.",
-    "각 소스의 url/link_pattern은 '후보값'이며 verified=false는 아직 실제 응답으로 확인되지 않았다는 뜻이다.",
-    "국내 기관 사이트는 해외 IP를 차단하는 곳이 많아 개발 환경에서 검증할 수 없었다.",
-    "국내 PC 또는 서울 리전에서 `python3 research/discover.py --fix` 를 한 번 실행하면",
-    "살아 있는 RSS 주소를 찾아 url을 채우고 verified 플래그를 갱신한다."
+    "verified=false 는 아직 실제 응답으로 확인되지 않은 주소라는 뜻이다.",
+    "국내 PC에서 `python3 research/discover.py --fix` 를 실행하면",
+    "살아 있는 주소와 링크 패턴을 자동으로 찾아 갱신한다."
   ],
   "max_age_days": 21,
   "keywords": null,
@@ -26,9 +25,9 @@
       "name": "KISDI 정보통신정책연구원",
       "category": "연구기관",
       "type": "html",
-      "url": "https://www.kisdi.re.kr/report/reportList.do",
+      "url": "https://www.kisdi.re.kr/report/list.do?key=m2101113024770&arrMasterId=3934580",
       "base_url": "https://www.kisdi.re.kr",
-      "link_pattern": "(reportView|View)\\.do",
+      "link_pattern": "report/view\\.do",
       "keyword_filter": true,
       "enabled": true,
       "verified": false
@@ -138,7 +137,12 @@
       "base_url": "https://www.korea.kr",
       "keyword_filter": true,
       "enabled": true,
-      "verified": false
+      "verified": false,
+      "rss_index": [
+        "https://www.korea.kr/etc/rss.do",
+        "https://admin.korea.kr/etc/rss.do"
+      ],
+      "rss_match": "과학기술정보통신부"
     },
     {
       "id": "kcc",
@@ -149,7 +153,12 @@
       "base_url": "https://www.korea.kr",
       "keyword_filter": true,
       "enabled": true,
-      "verified": false
+      "verified": false,
+      "rss_index": [
+        "https://www.korea.kr/etc/rss.do",
+        "https://admin.korea.kr/etc/rss.do"
+      ],
+      "rss_match": "방송통신위원회"
     },
     {
       "id": "pipc",
@@ -160,7 +169,12 @@
       "base_url": "https://www.korea.kr",
       "keyword_filter": true,
       "enabled": true,
-      "verified": false
+      "verified": false,
+      "rss_index": [
+        "https://www.korea.kr/etc/rss.do",
+        "https://admin.korea.kr/etc/rss.do"
+      ],
+      "rss_match": "개인정보보호위원회"
     },
     {
       "id": "kci",
