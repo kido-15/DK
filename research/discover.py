@@ -27,6 +27,7 @@ import os
 import re
 import sys
 from collections import defaultdict
+from concurrent.futures import ThreadPoolExecutor
 from html.parser import HTMLParser
 from urllib.parse import parse_qs, urljoin, urlparse
 
@@ -120,19 +121,33 @@ def parse_anchors(html: str) -> _AnchorParser:
     return parser
 
 
-def link_shape(href: str) -> str | None:
+def link_shape(href: str, base_netloc: str = "") -> str | None:
     """링크를 '형태'로 요약한다. 같은 게시판의 상세보기들은 같은 형태로 묶인다.
 
     /report/view.do?key=m21&artId=1779316  ->  report/view.do?artId,key
+    /posts/view/24024                      ->  posts/view/<num>
+
+    글 번호가 경로에 박히는 사이트(SPRi, 법제연구원 등)에서 같은 게시판이
+    글마다 다른 형태로 쪼개지지 않도록 숫자 세그먼트를 <num>으로 묶는다.
     """
-    if not href or href.startswith(("#", "javascript:", "mailto:", "tel:")):
+    if not href or href.startswith(("javascript:", "mailto:", "tel:")):
         return None
     parsed = urlparse(href)
+    # 외부 사이트로 나가는 링크(광고·제휴 배너)는 자료 목록이 아니다
+    if parsed.netloc and base_netloc and parsed.netloc.lstrip("www.") != base_netloc.lstrip("www."):
+        return None
     segments = [s for s in parsed.path.split("/") if s]
     if not segments:
         return None
-    # 마지막 두 세그먼트까지만 보면 게시판별 구분에 충분하다
-    tail = "/".join(segments[-2:])
+    normalized = []
+    for seg in segments[-3:]:
+        if re.fullmatch(r"\d+", seg):
+            normalized.append("<num>")
+        elif re.fullmatch(r"[0-9A-Fa-f]{16,}", seg):
+            normalized.append("<hash>")
+        else:
+            normalized.append(seg)
+    tail = "/".join(normalized)
     keys = ",".join(sorted(parse_qs(parsed.query).keys()))
     return f"{tail}?{keys}" if keys else tail
 
@@ -140,7 +155,39 @@ def link_shape(href: str) -> str | None:
 def shape_to_pattern(shape: str) -> str:
     """형태 요약을 sources.json에 넣을 link_pattern 정규식으로 바꾼다."""
     path_part = shape.split("?")[0]
-    return re.escape(path_part)
+    parts = []
+    for seg in path_part.split("/"):
+        if seg == "<num>":
+            parts.append(r"\d+")
+        elif seg == "<hash>":
+            parts.append(r"[0-9A-Fa-f]+")
+        else:
+            parts.append(re.escape(seg))
+    return "/".join(parts)
+
+
+def passes_gate(items: list) -> tuple[bool, str]:
+    """추출 결과가 '진짜 자료 목록'인지 판정한다.
+
+    메뉴·배너·푸터 링크를 자료로 오인하면 알림 메일이 쓰레기로 채워진다.
+    가장 확실한 구분선은 **날짜**다. 게시판 목록에는 게시일이 붙고, 메뉴에는 없다.
+    """
+    if len(items) < 5:
+        return False, f"항목 {len(items)}건뿐 (게시판 한 페이지로 보기엔 너무 적음)"
+
+    dated = sum(1 for i in items if i.published)
+    if dated / len(items) < 0.6:
+        return False, f"날짜가 붙은 항목이 {dated}/{len(items)}건뿐 (메뉴 링크로 보임)"
+
+    titles = [i.title for i in items]
+    avg_len = sum(len(t) for t in titles) / len(titles)
+    if avg_len < 12:
+        return False, f"제목 평균 {avg_len:.0f}자로 너무 짧음 (메뉴 링크로 보임)"
+
+    if len(set(titles)) / len(titles) < 0.8:
+        return False, "같은 제목이 반복됨 (더보기·다운로드 링크로 보임)"
+
+    return True, ""
 
 
 def score_group(anchors: list[dict], chunks: list[str]) -> tuple[int, list[str]]:
@@ -191,12 +238,12 @@ def score_group(anchors: list[dict], chunks: list[str]) -> tuple[int, list[str]]
     return score, titles[:3]
 
 
-def suggest_patterns(html: str, limit: int = 4) -> list[dict]:
+def suggest_patterns(html: str, limit: int = 4, base_netloc: str = "") -> list[dict]:
     """목록 페이지 HTML에서 link_pattern 후보를 점수순으로 뽑는다."""
     parser = parse_anchors(html)
     groups: dict[str, list[dict]] = defaultdict(list)
     for anchor in parser.anchors:
-        shape = link_shape(anchor["href"])
+        shape = link_shape(anchor["href"], base_netloc)
         if shape:
             groups[shape].append(anchor)
 
@@ -311,51 +358,76 @@ def find_feed_in_index(index_url: str, match: str, timeout: int) -> str:
 
 
 def probe(source: dict, timeout: int) -> tuple[bool, str]:
+    """현재 설정으로 실제 수집해 보고, 게이트까지 통과하는지 확인한다."""
     items, error = collector.collect_source(source, timeout=timeout)
     if error:
         return False, error.split(": ", 1)[-1]
     if not items:
         return False, "응답은 받았으나 항목을 하나도 뽑지 못함"
-    return True, f"{len(items)}건 추출 (예: {items[0].title[:42]})"
+    if source.get("type") != "rss":
+        passed, reason = passes_gate(items)
+        if not passed:
+            return False, reason
+    dated = sum(1 for i in items if i.published)
+    return True, f"{len(items)}건 추출 (날짜 {dated}건, 예: {items[0].title[:38]})"
+
+
+def clean_url(url: str) -> str:
+    """#앵커만 다른 주소는 같은 페이지다. 조각(fragment)을 떼어낸다."""
+    parsed = urlparse(url)
+    rebuilt = parsed._replace(fragment="")
+    return rebuilt.geturl()
 
 
 def try_patterns_on(url: str, source: dict, timeout: int, verbose: bool) -> list[dict]:
-    """주어진 목록 페이지에서 link_pattern 후보를 뽑아 실제 추출 결과까지 확인한다."""
+    """주어진 목록 페이지에서 link_pattern 후보를 뽑고, 게이트를 통과한 것만 돌려준다."""
+    url = clean_url(url)
     try:
         html = collector.fetch(url, timeout=timeout)
     except Exception as e:  # noqa: BLE001
         if verbose:
-            print(f"             ({url} 접속 실패: {e})")
+            print(f"              ({url} 접속 실패: {e})")
         return []
     if looks_like_feed(html):
         return [{"pattern": None, "url": url, "score": 999, "count": 0,
                  "samples": ["(RSS 피드)"], "type": "rss"}]
 
-    candidates = suggest_patterns(html)
+    base_netloc = urlparse(source.get("base_url") or url).netloc
     verified = []
-    for cand in candidates:
+    for cand in suggest_patterns(html, base_netloc=base_netloc):
         trial = dict(source, url=url, type="html", link_pattern=cand["pattern"])
         items = collector.parse_html_list(html, trial)
+        passed, reason = passes_gate(items)
+        if not passed:
+            if verbose:
+                print(f"              (기각: {cand['pattern']} — {reason})")
+            continue
         keep = [i for i in items if collector.matches_keywords(i, collector.DEFAULT_KEYWORDS)]
         cand.update({
             "url": url,
             "type": "html",
             "extracted": len(items),
             "ai_hits": len(keep),
-            "samples": [i.title[:42] for i in items[:3]] or cand["samples"],
+            "samples": [f"{i.title[:40]} ({i.published or '날짜없음'})" for i in items[:3]],
         })
-        if items:
-            verified.append(cand)
-    return verified
+        # 날짜가 잘 붙고 건수가 많을수록 확실한 게시판이다
+        dated = sum(1 for i in items if i.published)
+        cand["score"] += int(40 * dated / len(items)) + min(len(items), 20)
+        verified.append(cand)
+    return sorted(verified, key=lambda c: -c["score"])
 
 
 def repair(source: dict, timeout: int, verbose: bool) -> list[dict]:
-    """실패한 소스를 고칠 후보들을 점수순으로 찾아낸다."""
+    """실패한 소스를 고칠 후보들을 점수순으로 찾아낸다.
+
+    홈 -> 자료실 메뉴 -> (필요하면) 그 안의 하위 목록까지 2단계로 따라간다.
+    게시판을 '발간물' 같은 중간 페이지 뒤에 숨겨둔 사이트가 많기 때문이다.
+    """
     base = source.get("base_url") or source["url"]
     root = f"{urlparse(base).scheme}://{urlparse(base).netloc}"
     candidates: list[dict] = []
 
-    # 0) RSS 안내 페이지가 지정된 소스 (정책브리핑 등)
+    # 0) RSS 안내 페이지가 지정된 소스
     if source.get("rss_index") and source.get("rss_match"):
         index_urls = source["rss_index"]
         if isinstance(index_urls, str):
@@ -367,27 +439,61 @@ def repair(source: dict, timeout: int, verbose: bool) -> list[dict]:
                                    "score": 1000, "samples": ["(RSS 안내 페이지에서 확인)"]})
                 break
 
-    # 1) RSS 우선
+    # 1) RSS 우선 — 가장 안정적이다
     for feed in find_feeds(base, timeout):
         candidates.append({"pattern": None, "url": feed, "type": "rss",
                            "score": 900, "samples": ["(RSS 피드)"]})
 
     # 2) 현재 주소가 열리면 그 페이지에서 패턴 추론
-    candidates += try_patterns_on(source["url"], source, timeout, verbose)
+    candidates += try_patterns_on(source["url"], source, timeout, verbose) if source.get("url") else []
 
-    # 3) 홈에서 자료실 메뉴를 따라가 본다
-    if not [c for c in candidates if c["score"] > 60]:
-        for text, url in find_list_pages(root, timeout, verbose):
+    def best_score() -> int:
+        return max((c["score"] for c in candidates), default=0)
+
+    # 3) 홈에서 자료실 메뉴를 따라간다
+    if best_score() < 100:
+        menus = find_list_pages(root, timeout, verbose)
+        if verbose:
+            print(f"              (1단계 메뉴 {len(menus)}개 탐색)")
+        found = scan_pages(menus, source, timeout, verbose)
+        candidates += found
+
+        # 4) 그래도 없으면 메뉴 페이지 안쪽을 한 번 더 들어간다
+        if not found and menus:
+            deeper: list[tuple[str, str]] = []
+            for text, url in menus[:6]:
+                for sub_text, sub_url in find_list_pages(clean_url(url), timeout, False):
+                    if sub_url not in {u for _, u in menus}:
+                        deeper.append((f"{text}>{sub_text}", sub_url))
             if verbose:
-                print(f"             (메뉴 후보: {text} -> {url})")
-            for cand in try_patterns_on(url, source, timeout, verbose):
-                cand["menu"] = text
-                # 메뉴 이름이 자료다울수록 가산점
-                if any(h in text for h in ("발간", "보고서", "간행물", "자료", "리포트", "브리프")):
-                    cand["score"] += 15
-                candidates.append(cand)
+                print(f"              (2단계 메뉴 {len(deeper)}개 탐색)")
+            candidates += scan_pages(deeper[:16], source, timeout, verbose)
 
     return sorted(candidates, key=lambda c: -c["score"])[:5]
+
+
+def scan_pages(pages: list[tuple[str, str]], source: dict, timeout: int,
+               verbose: bool) -> list[dict]:
+    """여러 목록 페이지 후보를 병렬로 훑어 게이트를 통과한 것만 모은다."""
+    if not pages:
+        return []
+
+    def scan(entry: tuple[str, str]) -> list[dict]:
+        text, url = entry
+        found = try_patterns_on(url, source, timeout, verbose)
+        for cand in found:
+            cand["menu"] = text
+            if any(h in text for h in ("발간", "보고서", "간행물", "자료", "리포트", "브리프", "연구")):
+                cand["score"] += 15
+            if "보도자료" in text:
+                cand["score"] += 10
+        return found
+
+    results: list[dict] = []
+    with ThreadPoolExecutor(max_workers=min(6, len(pages))) as pool:
+        for found in pool.map(scan, pages):
+            results += found
+    return results
 
 
 def apply_candidate(source: dict, cand: dict) -> None:
@@ -442,15 +548,21 @@ def main() -> int:
         candidates = repair(source, args.timeout, args.verbose)
         if not candidates:
             failed.append(source["id"])
-            print("            └ 후보를 찾지 못했습니다. 브라우저에서 목록 페이지를 열고 "
-                  "url/link_pattern을 직접 넣어주세요.")
+            print("            └ 쓸 만한 자료 목록을 찾지 못했습니다.")
+            if args.fix and source.get("enabled", True):
+                source["enabled"] = False
+                source["notes"] = ("자동 탐색 실패. 목록 페이지 주소와 link_pattern을 "
+                                   "직접 넣은 뒤 enabled를 true로 되돌리세요.")
+                changed = True
+                print("            └ 잘못된 자료가 섞이지 않도록 이 소스를 비활성화했습니다.")
             continue
 
         for rank, cand in enumerate(candidates):
             mark = "★" if rank == 0 else " "
             kind = "RSS" if cand.get("type") == "rss" else f"패턴 {cand['pattern']}"
             menu = f" [{cand['menu']}]" if cand.get("menu") else ""
-            print(f"            {mark} {kind}{menu}")
+            hits = f" / AI 관련 {cand['ai_hits']}건" if cand.get("ai_hits") is not None else ""
+            print(f"            {mark} {kind}{menu}{hits}")
             print(f"              {cand['url']}")
             for sample in cand.get("samples", [])[:2]:
                 print(f"              · {sample}")
@@ -458,15 +570,27 @@ def main() -> int:
         if args.fix:
             apply_candidate(source, candidates[0])
             changed = True
-            fixed.append(source["id"])
             success, message = probe(source, args.timeout)
-            print(f"            └ 적용 후 재확인: {'성공 — ' + message if success else '실패 — ' + message}")
-            if not success:
+            if success:
+                fixed.append(source["id"])
+                source["enabled"] = True
+                source.pop("notes", None)
+                print(f"            └ 적용 후 재확인: 성공 — {message}")
+            else:
                 source["verified"] = False
+                source["enabled"] = False
+                source["notes"] = f"자동 수정 후에도 검증 실패: {message}"
+                failed.append(source["id"])
+                print(f"            └ 적용 후 재확인: 실패 — {message} (비활성화)")
 
+    disabled = [src["id"] for src in config["sources"] if not src.get("enabled", True)
+                and src["id"] != "kci"]
     print(f"\n정상 {len(ok)}건 / 자동수정 {len(fixed)}건 / 미해결 {len(failed)}건")
-    if failed:
-        print(f"미해결: {', '.join(failed)}")
+    if fixed:
+        print(f"수정됨: {', '.join(fixed)}")
+    if disabled:
+        print(f"비활성화(수동 확인 필요): {', '.join(disabled)}")
+        print("  -> 잘못된 자료가 알림에 섞이는 것보다 빠지는 편이 낫다고 보고 꺼두었습니다.")
 
     if changed and args.fix:
         with open(CONFIG_PATH, "w", encoding="utf-8") as f:

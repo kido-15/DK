@@ -2,8 +2,9 @@
   "_comment": [
     "AI 연구자료 모니터링 대상 목록.",
     "verified=false 는 아직 실제 응답으로 확인되지 않은 주소라는 뜻이다.",
-    "국내 PC에서 `python3 research/discover.py --fix` 를 실행하면",
-    "살아 있는 주소와 링크 패턴을 자동으로 찾아 갱신한다."
+    "국내 PC에서 `python3 research/discover.py --fix` 를 실행하면 살아 있는 주소와",
+    "링크 패턴을 자동으로 찾고, 검증을 통과하지 못한 소스는 스스로 비활성화한다.",
+    "enabled=false 로 꺼진 소스는 목록 페이지 주소와 link_pattern을 직접 넣어주면 된다."
   ],
   "max_age_days": 21,
   "keywords": null,
@@ -132,49 +133,37 @@
       "id": "msit",
       "name": "과학기술정보통신부 보도자료",
       "category": "정부·부처",
-      "type": "rss",
-      "url": "https://www.korea.kr/rss/dept_msit.xml",
-      "base_url": "https://www.korea.kr",
+      "type": "html",
+      "url": "https://www.msit.go.kr",
+      "base_url": "https://www.msit.go.kr",
       "keyword_filter": true,
       "enabled": true,
       "verified": false,
-      "rss_index": [
-        "https://www.korea.kr/etc/rss.do",
-        "https://admin.korea.kr/etc/rss.do"
-      ],
-      "rss_match": "과학기술정보통신부"
+      "link_pattern": "view\\.do"
     },
     {
       "id": "kcc",
       "name": "방송통신위원회 보도자료",
       "category": "정부·부처",
-      "type": "rss",
-      "url": "https://www.korea.kr/rss/dept_kcc.xml",
-      "base_url": "https://www.korea.kr",
+      "type": "html",
+      "url": "https://www.kcc.go.kr",
+      "base_url": "https://www.kcc.go.kr",
       "keyword_filter": true,
       "enabled": true,
       "verified": false,
-      "rss_index": [
-        "https://www.korea.kr/etc/rss.do",
-        "https://admin.korea.kr/etc/rss.do"
-      ],
-      "rss_match": "방송통신위원회"
+      "link_pattern": "view\\.do"
     },
     {
       "id": "pipc",
       "name": "개인정보보호위원회 보도자료",
       "category": "정부·부처",
-      "type": "rss",
-      "url": "https://www.korea.kr/rss/dept_pipc.xml",
-      "base_url": "https://www.korea.kr",
+      "type": "html",
+      "url": "https://www.pipc.go.kr",
+      "base_url": "https://www.pipc.go.kr",
       "keyword_filter": true,
       "enabled": true,
       "verified": false,
-      "rss_index": [
-        "https://www.korea.kr/etc/rss.do",
-        "https://admin.korea.kr/etc/rss.do"
-      ],
-      "rss_match": "개인정보보호위원회"
+      "link_pattern": "view\\.do"
     },
     {
       "id": "kci",

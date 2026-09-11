@@ -117,3 +117,95 @@ if FAILURES:
         print("  ✗ " + f)
     sys.exit(1)
 print("모든 테스트 통과")
+
+# ===========================================================================
+# 실제 탐색에서 잘못 잡혔던 사례들 (2026-09-11 첫 --fix 실행 로그 기준)
+# ===========================================================================
+
+# [사례 1] KISDI: 메뉴 링크를 자료 목록으로 오인했다.
+#          "KISDI Premium Report", "KISDI Perspectives" 는 날짜 없는 메뉴다.
+KISDI_MENU_PAGE = """<html><body>
+  <a href="/report/list.do?key=m01">KISDI Premium Report</a>
+  <a href="/report/list.do?key=m02">KISDI Perspectives</a>
+  <a href="/report/list.do?key=m03">KISDI STAT Report</a>
+  <a href="/report/list.do?key=m04">기본연구 보고서</a>
+  <a href="/report/list.do?key=m05">정책연구 보고서</a>
+  <a href="/report/list.do?key=m06">현안연구 보고서</a>
+  <a href="/sub.do?key=s01">KISDI 발간물</a>
+  <a href="/sub.do?key=s02">KISDI 학술지</a>
+</body></html>"""
+menu_items = collector.parse_html_list(
+    KISDI_MENU_PAGE, {"id": "t", "name": "t", "base_url": "https://www.kisdi.re.kr",
+                      "link_pattern": "report/list\\.do"})
+passed, reason = discover.passes_gate(menu_items)
+check("[회귀] 메뉴 링크 묶음은 게이트 탈락", passed, False)
+check("[회귀] 탈락 사유가 날짜 부재", "날짜" in reason, True)
+
+# [사례 2] NARS: "연구 보고서", "NARS info" 같은 짧은 메뉴
+NARS_MENU_PAGE = """<html><body>
+  <a href="/report/list.do?cmsCode=CM0043">연구 보고서</a>
+  <a href="/report/list.do?cmsCode=CM0044">NARS info</a>
+  <a href="/report/list.do?cmsCode=CM0045">간행물</a>
+  <a href="/report/list.do?cmsCode=CM0046">입법정보</a>
+  <a href="/report/list.do?cmsCode=CM0047">현안분석</a>
+  <a href="/report/list.do?cmsCode=CM0048">이슈와논점</a>
+</body></html>"""
+nars_items = collector.parse_html_list(
+    NARS_MENU_PAGE, {"id": "t", "name": "t", "base_url": "https://www.nars.go.kr",
+                     "link_pattern": "report/list\\.do"})
+passed, _ = discover.passes_gate(nars_items)
+check("[회귀] 짧은 메뉴 이름 묶음도 탈락", passed, False)
+
+# [사례 3] SPRi: 글 번호가 경로에 박혀 같은 게시판이 쪼개졌다.
+#          /posts/view/24024, /posts/view/24018 ... 은 하나의 패턴이어야 한다.
+SPRI_LIST_PAGE = """<html><body>
+  <ul>
+    <li><a href="/posts/view/24024">에이전틱 AI 시대의 핵심 자원, AX 인재: 현황 진단 및 정책 과제</a><span>2026.09.11</span></li>
+    <li><a href="/posts/view/24018">데이터 기반 가상융합(XR) 기술 콘텐츠 글로벌 동향 분석</a><span>2026.09.09</span></li>
+    <li><a href="/posts/view/24004">신뢰할 수 있는 AI: 글로벌 현황과 향후 정책적 과제</a><span>2026.09.05</span></li>
+    <li><a href="/posts/view/23998">AI 교육 혁신과 AI 융합인재 양성 전략</a><span>2026.09.02</span></li>
+    <li><a href="/posts/view/23990">소프트웨어 산업 실태조사 결과 보고</a><span>2026.08.29</span></li>
+    <li><a href="/posts/view/23985">디지털 전환 지표 분석</a><span>2026.08.26</span></li>
+  </ul>
+</body></html>"""
+spri_cands = discover.suggest_patterns(SPRI_LIST_PAGE, base_netloc="spri.kr")
+check("[회귀] 글 번호가 달라도 하나의 패턴으로 묶임", spri_cands[0]["count"], 6)
+check("[회귀] 숫자 세그먼트가 정규식으로 치환됨", spri_cands[0]["pattern"], "posts/view/\\d+")
+spri_items = collector.parse_html_list(
+    SPRI_LIST_PAGE, {"id": "t", "name": "t", "base_url": "https://spri.kr",
+                     "link_pattern": spri_cands[0]["pattern"]})
+check("[회귀] 추론 패턴으로 6건 추출", len(spri_items), 6)
+passed, _ = discover.passes_gate(spri_items)
+check("[회귀] 진짜 자료 목록은 게이트 통과", passed, True)
+check("[회귀] 날짜 파싱 정상", spri_items[0].published, "2026-09-11")
+
+# [사례 4] 언론진흥재단: 외부 사이트(newstore.or.kr) 광고 링크가 잡혔다.
+check("[회귀] 외부 도메인 링크는 형태 요약에서 제외",
+      discover.link_shape("https://www.newstore.or.kr/cstmr/detail.do?id=1", "www.kpf.or.kr"),
+      None)
+check("[회귀] 같은 도메인(www 유무 차이)은 유지",
+      discover.link_shape("https://kpf.or.kr/front/research/detail.do?id=1", "www.kpf.or.kr")
+      is not None, True)
+
+# [사례 5] #앵커만 다른 주소는 같은 페이지로 취급
+check("[회귀] fragment 제거", discover.clean_url("https://www.kpf.or.kr#tab1_5"),
+      "https://www.kpf.or.kr")
+
+# [사례 6] 같은 제목이 반복되는 '더보기/다운로드' 묶음
+dup_items = [collector.Item("t", "t", "", "다운로드", f"https://a.kr/f/{i}", "2026-09-11")
+             for i in range(8)]
+passed, reason = discover.passes_gate(dup_items)
+check("[회귀] 같은 제목 반복은 탈락", passed, False)
+
+# [사례 7] 항목이 너무 적은 묶음 (SPRi가 2건만 뽑고 '성공'이라 했던 경우)
+few_items = [collector.Item("t", "t", "", "AI 정책 보고서 제목입니다", f"https://a.kr/v/{i}",
+                            "2026-09-11") for i in range(3)]
+passed, reason = discover.passes_gate(few_items)
+check("[회귀] 3건짜리 묶음은 탈락", passed, False)
+
+if FAILURES:
+    print(f"\n회귀 테스트 실패 {len(FAILURES)}건\n")
+    for f in FAILURES:
+        print("  ✗ " + f)
+    sys.exit(1)
+print("회귀 테스트까지 모두 통과")
