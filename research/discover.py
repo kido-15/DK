@@ -286,7 +286,10 @@ def find_list_pages(base_url: str, timeout: int, verbose: bool = False) -> list[
             continue
         if not any(hint in text for hint in MENU_HINTS):
             continue
-        url = urljoin(base_url, href)
+        url = clean_url(urljoin(base_url, href))
+        # 제휴·광고 배너로 외부 사이트에 나가면 그 사이트의 글이 자료로 잡힌다
+        if urlparse(url).netloc.lstrip("www.") != urlparse(base_url).netloc.lstrip("www."):
+            continue
         if url in seen or url.rstrip("/") == base_url.rstrip("/"):
             continue
         seen.add(url)
@@ -413,6 +416,10 @@ def try_patterns_on(url: str, source: dict, timeout: int, verbose: bool) -> list
         # 날짜가 잘 붙고 건수가 많을수록 확실한 게시판이다
         dated = sum(1 for i in items if i.published)
         cand["score"] += int(40 * dated / len(items)) + min(len(items), 20)
+        # 글 상세 페이지에도 '관련 자료' 목록이 붙어 있어 목록처럼 보인다.
+        # 목록 페이지를 놔두고 상세 페이지를 수집원으로 삼으면 그 글이 지워질 때 깨진다.
+        if re.search(r"(/view/|view\.do|/detail|selectBoardArticle|mode=view)", url, re.I):
+            cand["score"] -= 45
         verified.append(cand)
     return sorted(verified, key=lambda c: -c["score"])
 
@@ -506,16 +513,77 @@ def apply_candidate(source: dict, cand: dict) -> None:
     source["verified"] = True
 
 
+def inspect(source: dict, timeout: int) -> None:
+    """자동 탐색이 실패한 소스의 페이지 구조를 그대로 보여준다.
+
+    이 출력만 있으면 사이트를 직접 열어보지 않고도 link_pattern이나
+    detail_url_template을 정할 수 있다.
+    """
+    url = source.get("url") or source.get("base_url", "")
+    print(f"\n===== {source['id']} 진단: {url} =====")
+    try:
+        html = collector.fetch(url, timeout=timeout)
+    except Exception as e:  # noqa: BLE001
+        print(f"접속 실패: {type(e).__name__} {e}")
+        return
+
+    print(f"HTML 길이: {len(html):,}자 / <table> {html.lower().count('<table')}개 "
+          f"/ <iframe> {html.lower().count('<iframe')}개")
+
+    parser = parse_anchors(html)
+    with_href = [a for a in parser.anchors
+                 if a["href"] and not a["href"].startswith(("#", "javascript:"))]
+    onclick_only = [a for a in parser.anchors
+                    if a.get("onclick") and (not a["href"] or a["href"].startswith(("#", "javascript:")))]
+    print(f"링크 {len(parser.anchors)}개 = 주소 있음 {len(with_href)}개 / "
+          f"onclick 방식 {len(onclick_only)}개")
+
+    if onclick_only:
+        print("\n[onclick 방식 링크 샘플]  <- detail_url_template 이 필요한 게시판입니다")
+        for anchor in onclick_only[:4]:
+            title = collector.normalize_space(" ".join(anchor["parts"]))[:45]
+            print(f"  onclick: {anchor['onclick'][:95]}")
+            print(f"  제목   : {title}")
+
+    base_netloc = urlparse(source.get("base_url") or url).netloc
+    groups: dict[str, list[dict]] = defaultdict(list)
+    for anchor in with_href:
+        shape = link_shape(anchor["href"], base_netloc)
+        if shape:
+            groups[shape].append(anchor)
+
+    print("\n[링크 형태별 분포 (많은 순 10개)]")
+    for shape, anchors in sorted(groups.items(), key=lambda kv: -len(kv[1]))[:10]:
+        titles = [collector.normalize_space(" ".join(a["parts"])) for a in anchors]
+        titles = [t for t in titles if t]
+        dated = sum(1 for a in anchors
+                    if collector.parse_date(" ".join(parser.chunks[a["chunk_index"]:a["chunk_index"] + 6])))
+        print(f"  {len(anchors):>3}건 날짜{dated:>3}건  {shape}")
+        for title in titles[:2]:
+            print(f"        · {title[:52]}")
+
+
 def main() -> int:
     ap = argparse.ArgumentParser()
     ap.add_argument("--fix", action="store_true", help="가장 점수 높은 후보로 sources.json을 갱신한다")
     ap.add_argument("--only", default="", help="점검할 소스 id (콤마 구분)")
     ap.add_argument("--timeout", type=int, default=15)
     ap.add_argument("--verbose", action="store_true", help="탐색 과정을 자세히 출력한다")
+    ap.add_argument("--inspect", default="",
+                    help="해당 소스 페이지의 링크 구조를 그대로 출력한다 (id 콤마 구분, 'all' 가능)")
     args = ap.parse_args()
 
     with open(CONFIG_PATH, encoding="utf-8") as f:
         config = json.load(f)
+
+    if args.inspect:
+        targets = {s.strip() for s in args.inspect.split(",") if s.strip()}
+        for source in config["sources"]:
+            if "all" in targets and not source.get("enabled", True):
+                inspect(source, args.timeout)
+            elif source["id"] in targets:
+                inspect(source, args.timeout)
+        return 0
 
     only = {s.strip() for s in args.only.split(",") if s.strip()}
     changed = False

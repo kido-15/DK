@@ -17,6 +17,11 @@ python3 scripts/run_research_digest.py --dry-run --all
 
 echo ""
 echo "=============================================="
+echo " 비활성화된 소스가 있다면, 아래로 페이지 구조를 확인할 수 있습니다."
+echo ""
+echo "   python3 research/discover.py --inspect all"
+echo ""
+echo "=============================================="
 echo " 결과가 만족스러우면 아래로 배포하세요."
 echo ""
 echo "   export GMAIL_ADDRESS=you@gmail.com"

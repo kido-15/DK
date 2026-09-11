@@ -14,9 +14,9 @@
       "name": "SPRi 소프트웨어정책연구소",
       "category": "연구기관",
       "type": "html",
-      "url": "https://spri.kr/posts/list/all",
+      "url": "https://spri.kr/posts?code=data_all",
       "base_url": "https://spri.kr",
-      "link_pattern": "/posts/view/",
+      "link_pattern": "posts/view/\\d+",
       "keyword_filter": true,
       "enabled": true,
       "verified": false
@@ -40,7 +40,7 @@
       "type": "html",
       "url": "https://www.nia.or.kr/site/nia_kor/ex/bbs/List.do?cbIdx=39485",
       "base_url": "https://www.nia.or.kr",
-      "link_pattern": "(View|view)\\.do",
+      "link_pattern": "bbs/View\\.do",
       "keyword_filter": true,
       "enabled": true,
       "verified": false
@@ -62,9 +62,9 @@
       "name": "국회입법조사처 (NARS)",
       "category": "연구기관",
       "type": "html",
-      "url": "https://www.nars.go.kr/report/list.do",
+      "url": "https://www.nars.go.kr/report/list.do?cmsCode=CM0043",
       "base_url": "https://www.nars.go.kr",
-      "link_pattern": "(view|View)\\.do",
+      "link_pattern": "report/view\\.do",
       "keyword_filter": true,
       "enabled": true,
       "verified": false
@@ -98,9 +98,9 @@
       "name": "한국법제연구원",
       "category": "연구기관",
       "type": "html",
-      "url": "https://www.klri.re.kr/kor/publication/pubList.do",
+      "url": "https://www.klri.re.kr/kor/publication/list.do",
       "base_url": "https://www.klri.re.kr",
-      "link_pattern": "(pubReadView|View)\\.do",
+      "link_pattern": "publication/\\d+/view\\.do",
       "keyword_filter": true,
       "enabled": true,
       "verified": false
@@ -115,7 +115,7 @@
       "link_pattern": "boardView\\.do",
       "keyword_filter": true,
       "enabled": true,
-      "verified": false
+      "verified": true
     },
     {
       "id": "stepi",
@@ -127,43 +127,43 @@
       "link_pattern": "View\\.do",
       "keyword_filter": true,
       "enabled": true,
-      "verified": false
+      "verified": true
     },
     {
       "id": "msit",
       "name": "과학기술정보통신부 보도자료",
       "category": "정부·부처",
       "type": "html",
-      "url": "https://www.msit.go.kr",
+      "url": "https://www.msit.go.kr/bbs/list.do?sCode=user&mPid=208&mId=307",
       "base_url": "https://www.msit.go.kr",
       "keyword_filter": true,
       "enabled": true,
       "verified": false,
-      "link_pattern": "view\\.do"
+      "link_pattern": "bbs/view\\.do"
     },
     {
       "id": "kcc",
-      "name": "방송통신위원회 보도자료",
+      "name": "방송미디어통신위원회 보도자료",
       "category": "정부·부처",
       "type": "html",
-      "url": "https://www.kcc.go.kr",
-      "base_url": "https://www.kcc.go.kr",
+      "url": "https://www.kmcc.go.kr/user.do?boardId=1113&page=A05030000&dc=K05030000",
+      "base_url": "https://www.kmcc.go.kr",
       "keyword_filter": true,
       "enabled": true,
       "verified": false,
-      "link_pattern": "view\\.do"
+      "link_pattern": "boardSeq=\\d+"
     },
     {
       "id": "pipc",
       "name": "개인정보보호위원회 보도자료",
       "category": "정부·부처",
       "type": "html",
-      "url": "https://www.pipc.go.kr",
+      "url": "https://www.pipc.go.kr/np/cop/bbs/selectBoardList.do?bbsId=BS074&mCode=C020010000",
       "base_url": "https://www.pipc.go.kr",
       "keyword_filter": true,
       "enabled": true,
       "verified": false,
-      "link_pattern": "view\\.do"
+      "link_pattern": "selectBoardArticle\\.do"
     },
     {
       "id": "kci",
@@ -186,7 +186,7 @@
       "base_url": "https://digital-strategy.ec.europa.eu",
       "keyword_filter": true,
       "enabled": true,
-      "verified": false
+      "verified": true
     },
     {
       "id": "ai-act-eu",
@@ -197,18 +197,18 @@
       "base_url": "https://artificialintelligenceact.eu",
       "keyword_filter": false,
       "enabled": true,
-      "verified": false
+      "verified": true
     },
     {
       "id": "oecd-ai",
       "name": "OECD.AI 정책 옵서버토리",
       "category": "해외 규제",
       "type": "rss",
-      "url": "https://oecd.ai/en/rss",
+      "url": "https://wp.oecd.ai/feed/",
       "base_url": "https://oecd.ai",
       "keyword_filter": false,
       "enabled": true,
-      "verified": false
+      "verified": true
     }
   ]
 }

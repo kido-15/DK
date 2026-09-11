@@ -247,10 +247,11 @@ class _ListParser(HTMLParser):
             return
         if tag != "a":
             return
-        attrs_dict = dict(attrs)
+        attrs_dict = {k.lower(): (v or "") for k, v in attrs}
         href = (attrs_dict.get("href") or "").strip()
         anchor = {
             "href": href,
+            "onclick": (attrs_dict.get("onclick") or "").strip(),
             "title_attr": normalize_space(attrs_dict.get("title") or ""),
             "chunk_index": len(self.chunks),
             "parts": [],
@@ -276,6 +277,29 @@ class _ListParser(HTMLParser):
             anchor["parts"].append(text)
 
 
+ONCLICK_ARGS = re.compile(r"""['"]([^'"]{1,80})['"]""")
+
+
+def href_from_onclick(onclick: str, template: str) -> str:
+    """국내 게시판이 흔히 쓰는 onclick 방식 링크에서 상세 주소를 만든다.
+
+    <a href="#" onclick="fnView('12345')">제목</a>  +  "/view.do?id={0}"
+      -> /view.do?id=12345
+
+    href에 주소가 없고 자바스크립트 함수 인자로만 글 번호를 넘기는 게시판이
+    적지 않다. 그런 사이트는 template에 자리표시자({0}, {1}...)를 적어두면 된다.
+    """
+    if not onclick or not template:
+        return ""
+    args = ONCLICK_ARGS.findall(onclick)
+    if not args:
+        return ""
+    try:
+        return template.format(*args)
+    except (IndexError, KeyError):
+        return ""
+
+
 def parse_html_list(html_text: str, source: dict) -> list[Item]:
     parser = _ListParser()
     parser.feed(html_text)
@@ -291,10 +315,14 @@ def parse_html_list(html_text: str, source: dict) -> list[Item]:
 
     items: list[Item] = []
     seen: set[str] = set()
+    template = source.get("detail_url_template", "")
     for anchor in parser.anchors:
         href = anchor["href"]
         if not href or href.startswith(("#", "javascript:", "mailto:")):
-            continue
+            # href가 비어 있어도 onclick에 글 번호가 있는 게시판이 있다
+            href = href_from_onclick(anchor.get("onclick", ""), template)
+            if not href:
+                continue
         if regex and not regex.search(href):
             continue
         if exclude_regex and exclude_regex.search(href):
