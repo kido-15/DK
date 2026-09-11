@@ -1,0 +1,9 @@
+# 배포 산출물
+lambda/function.zip
+out.json
+
+# 로컬 실행 상태 (개인 PC에서만 쓰는 파일)
+data/seen_research.json
+
+__pycache__/
+*.pyc

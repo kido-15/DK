@@ -1,4 +1,19 @@
-# 국회 인공지능 법안 알림 (AI Bill Alert)
+# AI 모니터링 봇
+
+AI 관련 국내 동향을 자동으로 추적해 Gmail로 알려주는 봇 모음입니다.
+둘 다 AWS Lambda(서울 리전) + EventBridge로 돌아갑니다.
+
+| 봇 | 무엇을 보는가 | 주기 | 문서 |
+|---|---|---|---|
+| `ai-bill-alert` | 국회에 새로 발의된 **인공지능 관련 법률안** | 하루 3회 (09/15/21시) | 이 문서 아래 |
+| `ai-research-digest` | 정책연구기관·정부부처·해외 규제기관의 **AI 연구자료 신규 공개** | 매일 09시 | [research/README.md](research/README.md) |
+
+> 두 봇 모두 서울 리전에서 실행합니다. 열린국회정보와 국내 기관 사이트 상당수가
+> 해외 IP를 차단해서, 미국 리전(GitHub Actions 등)에서는 수집이 되지 않기 때문입니다.
+
+---
+
+# 1. 국회 인공지능 법안 알림 (AI Bill Alert)
 
 열린국회정보 Open API에서 **"인공지능"**이 포함된 국회의원 발의법률안을 주기적으로 확인하고,
 새로 발의된 법안이 있으면 Gmail로 알림 메일을 보내는 자동화입니다.
@@ -91,3 +106,27 @@ export GMAIL_APP_PASSWORD=앱비밀번호16자리
 export ALERT_TO=you@gmail.com
 python3 scripts/check_ai_bills.py
 ```
+
+---
+
+# 2. AI 연구자료 알림 (AI Research Digest)
+
+국내 정책연구기관·정부 부처·해외 규제기관 사이트에서 AI 관련 자료가 새로 공개되면
+매일 아침 목록으로 묶어 보내줍니다.
+
+```bash
+# 0) 최초 1회: 각 기관 수집 주소가 살아 있는지 점검 (국내 PC에서 실행)
+python3 research/discover.py --fix
+
+# 1) 메일 없이 수집 결과만 확인
+python3 scripts/run_research_digest.py --dry-run --all
+
+# 2) 배포
+export GMAIL_ADDRESS=you@gmail.com
+export GMAIL_APP_PASSWORD=앱비밀번호16자리
+export ALERT_TO=you@gmail.com
+./lambda/deploy_research.sh
+```
+
+수집 대상과 키워드는 `research/sources.json` 한 파일에서 조정합니다.
+자세한 내용과 주의사항은 **[research/README.md](research/README.md)** 를 참고하세요.

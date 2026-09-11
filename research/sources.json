@@ -1,0 +1,211 @@
+{
+  "_comment": [
+    "AI 연구자료 모니터링 대상 목록.",
+    "각 소스의 url/link_pattern은 '후보값'이며 verified=false는 아직 실제 응답으로 확인되지 않았다는 뜻이다.",
+    "국내 기관 사이트는 해외 IP를 차단하는 곳이 많아 개발 환경에서 검증할 수 없었다.",
+    "국내 PC 또는 서울 리전에서 `python3 research/discover.py --fix` 를 한 번 실행하면",
+    "살아 있는 RSS 주소를 찾아 url을 채우고 verified 플래그를 갱신한다."
+  ],
+  "max_age_days": 21,
+  "keywords": null,
+  "sources": [
+    {
+      "id": "spri",
+      "name": "SPRi 소프트웨어정책연구소",
+      "category": "연구기관",
+      "type": "html",
+      "url": "https://spri.kr/posts/list/all",
+      "base_url": "https://spri.kr",
+      "link_pattern": "/posts/view/",
+      "keyword_filter": true,
+      "enabled": true,
+      "verified": false
+    },
+    {
+      "id": "kisdi",
+      "name": "KISDI 정보통신정책연구원",
+      "category": "연구기관",
+      "type": "html",
+      "url": "https://www.kisdi.re.kr/report/reportList.do",
+      "base_url": "https://www.kisdi.re.kr",
+      "link_pattern": "(reportView|View)\\.do",
+      "keyword_filter": true,
+      "enabled": true,
+      "verified": false
+    },
+    {
+      "id": "nia",
+      "name": "NIA 한국지능정보사회진흥원",
+      "category": "연구기관",
+      "type": "html",
+      "url": "https://www.nia.or.kr/site/nia_kor/ex/bbs/List.do?cbIdx=39485",
+      "base_url": "https://www.nia.or.kr",
+      "link_pattern": "(View|view)\\.do",
+      "keyword_filter": true,
+      "enabled": true,
+      "verified": false
+    },
+    {
+      "id": "iitp",
+      "name": "IITP 정보통신기획평가원",
+      "category": "연구기관",
+      "type": "html",
+      "url": "https://www.iitp.kr/kr/1/knowledge/openReference/list.it",
+      "base_url": "https://www.iitp.kr",
+      "link_pattern": "view\\.it",
+      "keyword_filter": true,
+      "enabled": true,
+      "verified": false
+    },
+    {
+      "id": "nars",
+      "name": "국회입법조사처 (NARS)",
+      "category": "연구기관",
+      "type": "html",
+      "url": "https://www.nars.go.kr/report/list.do",
+      "base_url": "https://www.nars.go.kr",
+      "link_pattern": "(view|View)\\.do",
+      "keyword_filter": true,
+      "enabled": true,
+      "verified": false
+    },
+    {
+      "id": "nafi",
+      "name": "국회미래연구원",
+      "category": "연구기관",
+      "type": "html",
+      "url": "https://www.nafi.re.kr/new/report.do",
+      "base_url": "https://www.nafi.re.kr",
+      "link_pattern": "(view|detail)",
+      "keyword_filter": true,
+      "enabled": true,
+      "verified": false
+    },
+    {
+      "id": "kpf",
+      "name": "한국언론진흥재단 (미디어 이슈·연구서)",
+      "category": "연구기관",
+      "type": "html",
+      "url": "https://www.kpf.or.kr/front/research/consignList.do",
+      "base_url": "https://www.kpf.or.kr",
+      "link_pattern": "(Detail|View)\\.do",
+      "keyword_filter": true,
+      "enabled": true,
+      "verified": false
+    },
+    {
+      "id": "klri",
+      "name": "한국법제연구원",
+      "category": "연구기관",
+      "type": "html",
+      "url": "https://www.klri.re.kr/kor/publication/pubList.do",
+      "base_url": "https://www.klri.re.kr",
+      "link_pattern": "(pubReadView|View)\\.do",
+      "keyword_filter": true,
+      "enabled": true,
+      "verified": false
+    },
+    {
+      "id": "kca",
+      "name": "KCA 한국방송통신전파진흥원 (트렌드리포트)",
+      "category": "연구기관",
+      "type": "html",
+      "url": "https://www.kca.kr/boardList.do?boardId=TRENDS",
+      "base_url": "https://www.kca.kr",
+      "link_pattern": "boardView\\.do",
+      "keyword_filter": true,
+      "enabled": true,
+      "verified": false
+    },
+    {
+      "id": "stepi",
+      "name": "STEPI 과학기술정책연구원",
+      "category": "연구기관",
+      "type": "html",
+      "url": "https://www.stepi.re.kr/site/stepiko/report/List.do",
+      "base_url": "https://www.stepi.re.kr",
+      "link_pattern": "View\\.do",
+      "keyword_filter": true,
+      "enabled": true,
+      "verified": false
+    },
+    {
+      "id": "msit",
+      "name": "과학기술정보통신부 보도자료",
+      "category": "정부·부처",
+      "type": "rss",
+      "url": "https://www.korea.kr/rss/dept_msit.xml",
+      "base_url": "https://www.korea.kr",
+      "keyword_filter": true,
+      "enabled": true,
+      "verified": false
+    },
+    {
+      "id": "kcc",
+      "name": "방송통신위원회 보도자료",
+      "category": "정부·부처",
+      "type": "rss",
+      "url": "https://www.korea.kr/rss/dept_kcc.xml",
+      "base_url": "https://www.korea.kr",
+      "keyword_filter": true,
+      "enabled": true,
+      "verified": false
+    },
+    {
+      "id": "pipc",
+      "name": "개인정보보호위원회 보도자료",
+      "category": "정부·부처",
+      "type": "rss",
+      "url": "https://www.korea.kr/rss/dept_pipc.xml",
+      "base_url": "https://www.korea.kr",
+      "keyword_filter": true,
+      "enabled": true,
+      "verified": false
+    },
+    {
+      "id": "kci",
+      "name": "KCI 한국학술지인용색인 (신규 등재 논문)",
+      "category": "학술논문",
+      "type": "rss",
+      "url": "",
+      "base_url": "https://www.kci.go.kr",
+      "keyword_filter": true,
+      "enabled": false,
+      "verified": false,
+      "notes": "KCI Open API는 별도 인증키가 필요하고 엔드포인트 규격을 확인하지 못해 기본 비활성 상태다. research/README 참고."
+    },
+    {
+      "id": "ec-digital-strategy",
+      "name": "EU 집행위 Shaping Europe's digital future",
+      "category": "해외 규제",
+      "type": "rss",
+      "url": "https://digital-strategy.ec.europa.eu/en/rss.xml",
+      "base_url": "https://digital-strategy.ec.europa.eu",
+      "keyword_filter": true,
+      "enabled": true,
+      "verified": false
+    },
+    {
+      "id": "ai-act-eu",
+      "name": "EU AI Act 모니터 (artificialintelligenceact.eu)",
+      "category": "해외 규제",
+      "type": "rss",
+      "url": "https://artificialintelligenceact.eu/feed/",
+      "base_url": "https://artificialintelligenceact.eu",
+      "keyword_filter": false,
+      "enabled": true,
+      "verified": false
+    },
+    {
+      "id": "oecd-ai",
+      "name": "OECD.AI 정책 옵서버토리",
+      "category": "해외 규제",
+      "type": "rss",
+      "url": "https://oecd.ai/en/rss",
+      "base_url": "https://oecd.ai",
+      "keyword_filter": false,
+      "enabled": true,
+      "verified": false
+    }
+  ]
+}
