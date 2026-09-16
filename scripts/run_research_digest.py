@@ -56,6 +56,11 @@ def main() -> int:
                     help="신규 여부와 무관하게 수집된 전체 목록을 출력한다")
     ap.add_argument("--max-age-days", type=int, default=None)
     ap.add_argument("--only", default="", help="특정 소스만 수집 (id 콤마 구분)")
+    ap.add_argument("--test-mail", action="store_true",
+                    help="발송 이력을 무시하고 지금 수집된 것을 테스트 메일로 보낸다. "
+                         "제목에 [테스트]가 붙고 상태 파일은 건드리지 않는다")
+    ap.add_argument("--require-date", action="store_true",
+                    help="등록일을 읽지 못한 항목은 제외한다 (기간 필터가 무의미해지는 것을 막는다)")
     args = ap.parse_args()
 
     config = collector.load_config()
@@ -66,6 +71,12 @@ def main() -> int:
         config["sources"] = [s for s in config["sources"] if s["id"] in wanted]
 
     result = collector.collect(config)
+    if args.require_date:
+        # 날짜 없는 항목은 기간 필터를 그냥 통과하므로, '어제치'만 보고 싶을 때 걸러낸다
+        dropped = [i for i in result.items if not i.published]
+        result.items = [i for i in result.items if i.published]
+        if dropped:
+            print(f"(--require-date: 등록일 미상 {len(dropped)}건 제외)")
     print(f"수집 {len(result.items)}건 / 실패 소스 {len(result.errors)}개\n")
     for error in result.errors:
         print(f"  [수집실패] {error}")
@@ -73,7 +84,10 @@ def main() -> int:
         print()
 
     seen, is_first_run = load_seen()
-    new_items = result.items if args.all else digest.filter_new(result.items, seen)
+    if args.test_mail:
+        new_items = result.items  # 이력과 무관하게 지금 수집된 것을 그대로 보낸다
+    else:
+        new_items = result.items if args.all else digest.filter_new(result.items, seen)
 
     if new_items:
         print(digest.build_text(new_items, []))
@@ -82,6 +96,22 @@ def main() -> int:
 
     if args.dry_run:
         print("\n(--dry-run: 메일 발송과 상태 저장을 건너뜁니다)")
+        return 0
+
+    if args.test_mail:
+        if not new_items:
+            print("\n보낼 항목이 없어 테스트 메일을 보내지 않았습니다.")
+            return 1
+        gmail_addr = os.environ.get("GMAIL_ADDRESS")
+        gmail_pass = os.environ.get("GMAIL_APP_PASSWORD")
+        if not gmail_addr or not gmail_pass:
+            print("\nGMAIL_ADDRESS / GMAIL_APP_PASSWORD 환경변수가 필요합니다.")
+            return 2
+        to_addrs = [a.strip() for a in (os.environ.get("ALERT_TO") or gmail_addr).split(",") if a.strip()]
+        digest.send_email(new_items, result.errors, gmail_addr, gmail_pass, to_addrs,
+                          subject_prefix="[테스트] ")
+        print(f"\n[테스트] {', '.join(to_addrs)} 로 {len(new_items)}건 발송 완료")
+        print("상태 파일은 건드리지 않았습니다 (실제 알림에 영향 없음).")
         return 0
 
     if is_first_run:

@@ -115,9 +115,9 @@ def build_html(items: list[Item], errors: list[str]) -> str:
 
 
 def send_email(items: list[Item], errors: list[str], gmail_addr: str,
-               gmail_pass: str, to_addrs: list[str]) -> None:
+               gmail_pass: str, to_addrs: list[str], subject_prefix: str = "") -> None:
     msg = MIMEMultipart("alternative")
-    msg["Subject"] = build_subject(items)
+    msg["Subject"] = subject_prefix + build_subject(items)
     msg["From"] = gmail_addr
     msg["To"] = ", ".join(to_addrs)
     msg.attach(MIMEText(build_text(items, errors), "plain", "utf-8"))
