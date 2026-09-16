@@ -15,6 +15,7 @@ import json
 import os
 import re
 import ssl
+import time
 import xml.etree.ElementTree as ET
 from concurrent.futures import ThreadPoolExecutor
 from dataclasses import dataclass, field
@@ -136,14 +137,31 @@ def parse_rfc822(text: str) -> str:
     return f"{int(m.group(3)):04d}-{month:02d}-{int(m.group(1)):02d}"
 
 
-def fetch(url: str, timeout: int = 20) -> str:
-    """페이지 본문을 문자열로 받아온다. 국내 기관 사이트는 EUC-KR인 경우가 아직 있다."""
+def fetch(url: str, timeout: int = 20, retries: int = 3) -> str:
+    """페이지 본문을 문자열로 받아온다. 국내 기관 사이트는 EUC-KR인 경우가 아직 있다.
+
+    과기정통부·국회입법조사처·개인정보위 등은 접속이 간헐적으로 끊긴다(연결이
+    그냥 reset된다). 한 번 실패했다고 그날 그 기관 자료를 통째로 놓치지 않도록
+    지수 백오프로 재시도한다. 다시 시도해도 결과가 같은 4xx는 바로 포기한다.
+    """
     request = Request(url, headers=REQUEST_HEADERS)
     context = ssl.create_default_context()
-    with urlopen(request, timeout=timeout, context=context) as resp:
-        raw = resp.read()
-        charset = resp.headers.get_content_charset()
-    return decode_body(raw, charset)
+    last_error: Exception | None = None
+    for attempt in range(retries):
+        try:
+            with urlopen(request, timeout=timeout, context=context) as resp:
+                raw = resp.read()
+                charset = resp.headers.get_content_charset()
+            return decode_body(raw, charset)
+        except HTTPError as e:
+            if e.code in (400, 401, 403, 404, 405, 410):
+                raise  # 주소가 틀린 것이므로 재시도는 의미가 없다
+            last_error = e
+        except (URLError, OSError) as e:
+            last_error = e
+        if attempt < retries - 1:
+            time.sleep(2 ** attempt)
+    raise last_error
 
 
 def decode_body(raw: bytes, charset: str | None = None) -> str:
@@ -421,6 +439,17 @@ def collect(config: dict, timeout: int = 20, workers: int = 6) -> CollectResult:
     for source, (items, error) in zip(sources, fetched):
         if error:
             result.errors.append(error)
+            continue
+        if not items:
+            # 접속과 파싱은 됐는데 목록에서 한 건도 못 뽑은 경우.
+            # 사이트 개편으로 link_pattern이 더 이상 맞지 않을 때 이렇게 되는데,
+            # 조용히 넘어가면 "그날 새 자료가 없었다"와 구별되지 않아 몇 달이고
+            # 모르고 지나간다. 실패로 올려 메일에 함께 알린다.
+            result.errors.append(
+                f"{source['id']}: 목록에서 한 건도 추출하지 못했습니다. "
+                "사이트 개편으로 주소나 link_pattern이 맞지 않을 수 있습니다 "
+                "(python3 research/discover.py 로 주소를 다시 찾아보세요)"
+            )
             continue
 
         kept = 0
