@@ -123,7 +123,10 @@ def send_email(items: list[Item], errors: list[str], gmail_addr: str,
     msg.attach(MIMEText(build_text(items, errors), "plain", "utf-8"))
     msg.attach(MIMEText(build_html(items, errors), "html", "utf-8"))
 
+    # 구글은 앱 비밀번호를 "abcd efgh ijkl mnop" 처럼 네 칸으로 끊어 보여준다.
+    # 보이는 대로 복사하면 공백이 딸려오고, 그대로 로그인하면 535로 거부된다.
+    gmail_pass = "".join((gmail_pass or "").split())
     context = ssl.create_default_context()
     with smtplib.SMTP_SSL("smtp.gmail.com", 465, context=context) as server:
-        server.login(gmail_addr, gmail_pass)
+        server.login(gmail_addr.strip(), gmail_pass)
         server.sendmail(gmail_addr, to_addrs, msg.as_string())
