@@ -622,7 +622,7 @@ def pattern_from_template(template: str) -> str:
 def add_source(url: str, *, source_id: str, name: str, category: str,
                timeout: int, keyword_filter: bool,
                detail_url_template: str = "", relaxed: bool = False,
-               link_pattern: str = "") -> dict | None:
+               link_pattern: str = "", onclick_function: str = "") -> dict | None:
     """목록 URL 하나로 sources.json에 넣을 설정을 만들어 돌려준다.
 
     수집까지 실제로 해 보고 게이트를 통과한 설정만 내놓는다. 후보를 그냥
@@ -668,12 +668,21 @@ def add_source(url: str, *, source_id: str, name: str, category: str,
             "link_pattern": pattern_from_template(detail_url_template),
         }
         # 목록에는 정렬·페이지 이동 링크도 onclick으로 섞여 있다. 가장 많이 나온
-        # 함수만 상세보기로 보고 나머지는 무시한다.
+        # 함수만 상세보기로 보는데, 검색 조건 설정처럼 더 많이 나오는 함수가 있는
+        # 목록도 있어(국회입법조사처는 setCmsCode가 15개, 실제 view는 10개)
+        # --onclick-function 으로 직접 지정할 수 있게 둔다.
         report = onclick_report(body)
-        if report:
+        if onclick_function:
+            candidate["onclick_function"] = onclick_function
+            found = next((c for f, c, _ in report if f == onclick_function), 0)
+            print(f"  상세보기 함수(지정): {onclick_function}() {found}개")
+        elif report:
             candidate["onclick_function"] = report[0][0]
             print(f"  상세보기 함수: {report[0][0]}() {report[0][1]}개"
                   + (f" / 무시: {', '.join(f + '()' for f, _, _ in report[1:4])}" if len(report) > 1 else ""))
+        if report and not onclick_function and len(report) > 1:
+            print(f"  (다른 함수를 쓰려면 --onclick-function "
+                  f"{'|'.join(f for f, _, _ in report[:4])})")
         ok, message = probe(candidate, timeout, strict=not relaxed)
         print(f"  detail_url_template 적용 -> {'정상' if ok else '실패'}: {message}")
         if ok:
@@ -761,6 +770,8 @@ def main() -> int:
                     help="--add와 함께: onclick 방식 게시판의 상세 주소 형식 (인자 자리는 {0}, {1})")
     ap.add_argument("--link-pattern", default="", metavar="REGEX",
                     help="--add와 함께: 링크 패턴을 직접 지정 (자동 제안이 놓칠 때)")
+    ap.add_argument("--onclick-function", default="", metavar="NAME",
+                    help="--add와 함께: 상세보기 함수를 직접 지정 (자동 감지가 틀릴 때)")
     ap.add_argument("--relaxed", action="store_true",
                     help="--add와 함께: 자동탐색용 추측(등록일 표기·제목 길이)을 끈다")
     ap.add_argument("--save", action="store_true",
@@ -781,6 +792,7 @@ def main() -> int:
             detail_url_template=args.detail_url_template,
             relaxed=args.relaxed,
             link_pattern=args.link_pattern,
+            onclick_function=args.onclick_function,
         )
         if entry is None:
             return 1

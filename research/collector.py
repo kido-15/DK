@@ -332,6 +332,22 @@ BUTTON_LABELS = {
 # 제목 자리에 오면 안 되는 항목 라벨
 META_LABELS = {"날짜", "등록일", "작성일", "게시일", "조회", "조회수", "첨부", "첨부파일", "파일", "구분"}
 _DATE_ONLY = re.compile(r"^[\d\s.\-/년월일:]+$")
+# 화면에 안 보이는 접근성 라벨과 '새 글' 배지가 제목에 섞여 들어온다.
+#   <span class="blind">제목:</span> 고영향 인공지능에 대한 해석 <span>[new]</span>
+_TITLE_LABEL = re.compile(r"^\s*(?:제목|title|subject)\s*[:：]\s*", re.I)
+_TITLE_BADGE = re.compile(
+    r"\s*(?:\[\s*(?:new|신규|새글)\s*\]|\(\s*new\s*\)|\bNEW\b|새글|신규)\s*$", re.I
+)
+
+
+def clean_title(title: str) -> str:
+    """제목 앞뒤에 붙은 접근성 라벨·배지를 떼어낸다."""
+    title = _TITLE_LABEL.sub("", title or "")
+    previous = None
+    while previous != title:            # [new] NEW 처럼 겹쳐 붙는 경우
+        previous = title
+        title = _TITLE_BADGE.sub("", title)
+    return title.strip()
 
 
 def href_from_onclick(onclick: str, template: str, only_func: str = "") -> str:
@@ -394,7 +410,11 @@ def parse_html_list(html_text: str, source: dict) -> list[Item]:
         href = anchor["href"]
         if not href or href.startswith(("#", "javascript:", "mailto:")):
             # href가 비어 있어도 onclick에 글 번호가 있는 게시판이 있다
-            href = href_from_onclick(anchor.get("onclick", ""), template, only_func)
+            # 함수 호출이 onclick이 아니라 href에 들어있는 게시판도 있다
+            # (국회입법조사처: href="javascript:view('49627');", onclick 없음).
+            # onclick만 보면 이런 목록은 링크를 한 건도 만들지 못한다.
+            call = anchor.get("onclick", "") or anchor["href"]
+            href = href_from_onclick(call, template, only_func)
             if not href:
                 continue
         if regex and not regex.search(href):
@@ -407,6 +427,7 @@ def parse_html_list(html_text: str, source: dict) -> list[Item]:
             # 링크 글자가 '자세히보기' 같은 버튼이면 제목은 링크 밖에 있다.
             # 뒤따르는 텍스트에서 라벨과 날짜를 건너뛰고 첫 실질 문구를 제목으로 쓴다.
             title = _title_from_context(parser.chunks[start : start + lookahead], min_len) or title
+        title = clean_title(title)
         if len(title) < min_len:
             continue
         url = urljoin(base_url, href)

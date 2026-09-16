@@ -72,7 +72,7 @@
       "keyword_filter": true,
       "enabled": false,
       "verified": false,
-      "notes": "수집 주소 미확정. 목록 URL을 받으면 discover.py --add 로 등록 예정."
+      "notes": "nars_report 로 대체됨"
     },
     {
       "id": "nafi",
@@ -111,7 +111,7 @@
       "keyword_filter": true,
       "enabled": false,
       "verified": false,
-      "notes": "수집 주소 미확정. 목록 URL을 받으면 discover.py --add 로 등록 예정."
+      "notes": "klri_insight / klri_trend 로 대체됨"
     },
     {
       "id": "kca",
@@ -292,6 +292,60 @@
       "url": "https://www.msit.go.kr/user/rss/rss.do?bbsSeqNo=94",
       "base_url": "https://www.msit.go.kr",
       "keyword_filter": true,
+      "enabled": true,
+      "verified": true
+    },
+    {
+      "id": "kisdi_ethics",
+      "name": "KISDI AI윤리소통채널",
+      "category": "연구기관",
+      "type": "html",
+      "url": "https://ai.kisdi.re.kr/aieth/bbs/B0000085/list.do?menuNo=400014",
+      "base_url": "https://ai.kisdi.re.kr",
+      "link_pattern": "bbs/B0000085/view\\.do",
+      "keyword_filter": false,
+      "enabled": true,
+      "verified": true
+    },
+    {
+      "id": "nars_report",
+      "name": "국회입법조사처 연구보고서",
+      "category": "정부·부처",
+      "type": "html",
+      "url": "https://www.nars.go.kr/report/list.do?cmsCode=CM0043",
+      "base_url": "https://www.nars.go.kr",
+      "detail_url_template": "https://www.nars.go.kr/report/view.do?cmsCode=CM0043&brdSeq={0}",
+      "onclick_function": "view",
+      "link_pattern": "view\\.do",
+      "keyword_filter": true,
+      "enabled": true,
+      "verified": true
+    },
+    {
+      "id": "klri_insight",
+      "name": "법제연구원 AI법제 인사이트",
+      "category": "연구기관",
+      "type": "html",
+      "url": "https://www.klri.re.kr/kor/issueData/A/list.do",
+      "base_url": "https://www.klri.re.kr",
+      "detail_url_template": "https://www.klri.re.kr/kor/issueData/A/{0}/view.do",
+      "onclick_function": "issueData_view",
+      "link_pattern": "view\\.do",
+      "keyword_filter": false,
+      "enabled": true,
+      "verified": true
+    },
+    {
+      "id": "klri_trend",
+      "name": "법제연구원 AI법제동향",
+      "category": "연구기관",
+      "type": "html",
+      "url": "https://www.klri.re.kr/kor/issueData/M/list.do",
+      "base_url": "https://www.klri.re.kr",
+      "detail_url_template": "https://www.klri.re.kr/kor/issueData/M/{0}/view.do",
+      "onclick_function": "issueData_view",
+      "link_pattern": "view\\.do",
+      "keyword_filter": false,
       "enabled": true,
       "verified": true
     }
