@@ -18,8 +18,9 @@
       "base_url": "https://spri.kr",
       "link_pattern": "posts/view/\\d+",
       "keyword_filter": true,
-      "enabled": true,
-      "verified": false
+      "enabled": false,
+      "verified": false,
+      "notes": "새 항목으로 대체됨 (spri -> spri_data/magazine/event, msit -> msit_press RSS)"
     },
     {
       "id": "kisdi",
@@ -30,8 +31,9 @@
       "base_url": "https://www.kisdi.re.kr",
       "link_pattern": "report/view\\.do",
       "keyword_filter": true,
-      "enabled": true,
-      "verified": false
+      "enabled": false,
+      "verified": false,
+      "notes": "kisdi_report / kisdi_periodical 로 대체됨"
     },
     {
       "id": "nia",
@@ -42,8 +44,9 @@
       "base_url": "https://www.nia.or.kr",
       "link_pattern": "bbs/View\\.do",
       "keyword_filter": true,
-      "enabled": true,
-      "verified": false
+      "enabled": false,
+      "verified": false,
+      "notes": "수집 주소 미확정. 목록 URL을 받으면 discover.py --add 로 등록 예정."
     },
     {
       "id": "iitp",
@@ -54,8 +57,9 @@
       "base_url": "https://www.iitp.kr",
       "link_pattern": "view\\.it",
       "keyword_filter": true,
-      "enabled": true,
-      "verified": false
+      "enabled": false,
+      "verified": false,
+      "notes": "수집 주소 미확정. 목록 URL을 받으면 discover.py --add 로 등록 예정."
     },
     {
       "id": "nars",
@@ -66,8 +70,9 @@
       "base_url": "https://www.nars.go.kr",
       "link_pattern": "report/view\\.do",
       "keyword_filter": true,
-      "enabled": true,
-      "verified": false
+      "enabled": false,
+      "verified": false,
+      "notes": "수집 주소 미확정. 목록 URL을 받으면 discover.py --add 로 등록 예정."
     },
     {
       "id": "nafi",
@@ -78,8 +83,9 @@
       "base_url": "https://www.nafi.re.kr",
       "link_pattern": "(view|detail)",
       "keyword_filter": true,
-      "enabled": true,
-      "verified": false
+      "enabled": false,
+      "verified": false,
+      "notes": "수집 주소 미확정. 목록 URL을 받으면 discover.py --add 로 등록 예정."
     },
     {
       "id": "kpf",
@@ -90,8 +96,9 @@
       "base_url": "https://www.kpf.or.kr",
       "link_pattern": "(Detail|View)\\.do",
       "keyword_filter": true,
-      "enabled": true,
-      "verified": false
+      "enabled": false,
+      "verified": false,
+      "notes": "수집 주소 미확정. 목록 URL을 받으면 discover.py --add 로 등록 예정."
     },
     {
       "id": "klri",
@@ -102,8 +109,9 @@
       "base_url": "https://www.klri.re.kr",
       "link_pattern": "publication/\\d+/view\\.do",
       "keyword_filter": true,
-      "enabled": true,
-      "verified": false
+      "enabled": false,
+      "verified": false,
+      "notes": "수집 주소 미확정. 목록 URL을 받으면 discover.py --add 로 등록 예정."
     },
     {
       "id": "kca",
@@ -137,9 +145,10 @@
       "url": "https://www.msit.go.kr/bbs/list.do?sCode=user&mPid=208&mId=307",
       "base_url": "https://www.msit.go.kr",
       "keyword_filter": true,
-      "enabled": true,
+      "enabled": false,
       "verified": false,
-      "link_pattern": "bbs/view\\.do"
+      "link_pattern": "bbs/view\\.do",
+      "notes": "새 항목으로 대체됨 (spri -> spri_data/magazine/event, msit -> msit_press RSS)"
     },
     {
       "id": "kcc",
@@ -207,6 +216,79 @@
       "url": "https://wp.oecd.ai/feed/",
       "base_url": "https://oecd.ai",
       "keyword_filter": false,
+      "enabled": true,
+      "verified": true
+    },
+    {
+      "id": "spri_data",
+      "name": "SPRi 연구자료",
+      "category": "연구기관",
+      "type": "html",
+      "url": "https://spri.kr/posts?code=data_all",
+      "base_url": "https://spri.kr",
+      "link_pattern": "posts/view/\\d+",
+      "keyword_filter": true,
+      "enabled": true,
+      "verified": true
+    },
+    {
+      "id": "spri_magazine",
+      "name": "SPRi 간행물(SW중심사회)",
+      "category": "연구기관",
+      "type": "html",
+      "url": "https://spri.kr/posts?code=magazine",
+      "base_url": "https://spri.kr",
+      "link_pattern": "posts/view/\\d+",
+      "keyword_filter": false,
+      "enabled": true,
+      "verified": true
+    },
+    {
+      "id": "spri_event",
+      "name": "SPRi 행사",
+      "category": "연구기관",
+      "type": "html",
+      "url": "https://spri.kr/posts?code=conference&flg=1",
+      "base_url": "https://spri.kr",
+      "link_pattern": "posts/view/\\d+",
+      "keyword_filter": true,
+      "enabled": true,
+      "verified": true
+    },
+    {
+      "id": "kisdi_report",
+      "name": "KISDI 연구보고서",
+      "category": "연구기관",
+      "type": "html",
+      "url": "https://www.kisdi.re.kr/report/list.do?key=m2101113024153&arrMasterId=3934560",
+      "base_url": "https://www.kisdi.re.kr",
+      "detail_url_template": "https://www.kisdi.re.kr/report/view.do?key=m2101113024153&masterId={0}&arrMasterId={0}&artId={1}",
+      "link_pattern": "view\\.do",
+      "keyword_filter": true,
+      "enabled": true,
+      "verified": true
+    },
+    {
+      "id": "kisdi_periodical",
+      "name": "KISDI 정기간행물",
+      "category": "연구기관",
+      "type": "html",
+      "url": "https://www.kisdi.re.kr/report/list.do?key=m2101113025536&arrMasterId=3934550",
+      "base_url": "https://www.kisdi.re.kr",
+      "detail_url_template": "https://www.kisdi.re.kr/report/view.do?key=m2101113025536&masterId={0}&arrMasterId={0}&artId={1}",
+      "link_pattern": "view\\.do",
+      "keyword_filter": true,
+      "enabled": true,
+      "verified": true
+    },
+    {
+      "id": "msit_press",
+      "name": "과기정통부 보도자료",
+      "category": "정부·부처",
+      "type": "rss",
+      "url": "https://www.msit.go.kr/user/rss/rss.do?bbsSeqNo=94",
+      "base_url": "https://www.msit.go.kr",
+      "keyword_filter": true,
       "enabled": true,
       "verified": true
     }

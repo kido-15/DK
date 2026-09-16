@@ -170,22 +170,32 @@ def shape_to_pattern(shape: str) -> str:
     return "/".join(parts)
 
 
-def passes_gate(items: list) -> tuple[bool, str]:
+def passes_gate(items: list, strict: bool = True) -> tuple[bool, str]:
     """추출 결과가 '진짜 자료 목록'인지 판정한다.
 
     메뉴·배너·푸터 링크를 자료로 오인하면 알림 메일이 쓰레기로 채워진다.
-    가장 확실한 구분선은 **날짜**다. 게시판 목록에는 게시일이 붙고, 메뉴에는 없다.
+    자동 탐색에서 가장 확실한 구분선은 **날짜**다. 게시판 목록에는 게시일이
+    붙고 메뉴에는 없다.
+
+    다만 날짜와 제목 길이는 '대개 그렇다'는 추측이라, 사람이 URL을 직접 지정한
+    경우에는 오히려 방해가 된다. 실제로 목록에 날짜를 안 쓰는 진짜 자료 게시판이
+    탈락하고, 날짜가 붙은 채용·입찰 공고 게시판이 뽑히는 역전이 일어났다
+    (SPRi 연구자료 vs 공지사항). 제목이 "2026년09월호"처럼 짧은 간행물 목록도
+    길이 규칙에 걸린다. 그래서 strict=False면 이 두 추측을 끈다.
+
+    건수와 중복 제목 검사는 strict와 무관하게 늘 적용한다. 메뉴·더보기 링크를
+    걸러내는 건 이 둘이고, 이건 추측이 아니라 확실한 신호이기 때문이다.
     """
     if len(items) < 5:
         return False, f"항목 {len(items)}건뿐 (게시판 한 페이지로 보기엔 너무 적음)"
 
     dated = sum(1 for i in items if i.published)
-    if dated / len(items) < 0.6:
+    if strict and dated / len(items) < 0.6:
         return False, f"날짜가 붙은 항목이 {dated}/{len(items)}건뿐 (메뉴 링크로 보임)"
 
     titles = [i.title for i in items]
     avg_len = sum(len(t) for t in titles) / len(titles)
-    if avg_len < 12:
+    if strict and avg_len < 12:
         return False, f"제목 평균 {avg_len:.0f}자로 너무 짧음 (메뉴 링크로 보임)"
 
     if len(set(titles)) / len(titles) < 0.8:
@@ -364,7 +374,7 @@ def find_feed_in_index(index_url: str, match: str, timeout: int) -> str:
     return ""
 
 
-def probe(source: dict, timeout: int) -> tuple[bool, str]:
+def probe(source: dict, timeout: int, strict: bool = True) -> tuple[bool, str]:
     """현재 설정으로 실제 수집해 보고, 게이트까지 통과하는지 확인한다."""
     items, error = collector.collect_source(source, timeout=timeout)
     if error:
@@ -372,7 +382,7 @@ def probe(source: dict, timeout: int) -> tuple[bool, str]:
     if not items:
         return False, "응답은 받았으나 항목을 하나도 뽑지 못함"
     if source.get("type") != "rss":
-        passed, reason = passes_gate(items)
+        passed, reason = passes_gate(items, strict=strict)
         if not passed:
             return False, reason
     dated = sum(1 for i in items if i.published)
@@ -597,7 +607,7 @@ def onclick_report(html: str) -> list[tuple[str, int, list[str]]]:
             continue  # 진짜 주소가 있는 링크는 기존 경로가 처리한다
         source = (anchor.get("onclick") or "") or href
         match = ONCLICK_FUNC.search(source)
-        args = collector.ONCLICK_ARGS.findall(source)
+        args = collector.onclick_args(source)
         if not match or not args:
             continue
         groups[match.group(1)].append(args)
@@ -614,7 +624,8 @@ def pattern_from_template(template: str) -> str:
 
 def add_source(url: str, *, source_id: str, name: str, category: str,
                timeout: int, keyword_filter: bool,
-               detail_url_template: str = "") -> dict | None:
+               detail_url_template: str = "", relaxed: bool = False,
+               link_pattern: str = "") -> dict | None:
     """목록 URL 하나로 sources.json에 넣을 설정을 만들어 돌려준다.
 
     수집까지 실제로 해 보고 게이트를 통과한 설정만 내놓는다. 후보를 그냥
@@ -646,7 +657,7 @@ def add_source(url: str, *, source_id: str, name: str, category: str,
 
     if looks_like_feed(body):
         candidate = {**base, "type": "rss", "url": url}
-        ok, message = probe(candidate, timeout)
+        ok, message = probe(candidate, timeout, strict=not relaxed)
         print(f"  RSS 피드로 인식 -> {'정상' if ok else '실패'}: {message}")
         if ok:
             candidate["verified"] = True
@@ -659,7 +670,7 @@ def add_source(url: str, *, source_id: str, name: str, category: str,
             "detail_url_template": detail_url_template,
             "link_pattern": pattern_from_template(detail_url_template),
         }
-        ok, message = probe(candidate, timeout)
+        ok, message = probe(candidate, timeout, strict=not relaxed)
         print(f"  detail_url_template 적용 -> {'정상' if ok else '실패'}: {message}")
         if ok:
             candidate["verified"] = True
@@ -667,7 +678,18 @@ def add_source(url: str, *, source_id: str, name: str, category: str,
         print("  - 템플릿의 자리표시자가 맞는지 확인하세요 (첫 인자가 {0}, 둘째가 {1}).")
         return None
 
-    # 3) HTML 목록이면 링크를 형태별로 묶어 '자료 목록'답게 생긴 후보부터 실제로 돌려본다.
+    # 3) link_pattern을 직접 받은 경우. 자동 제안이 놓치는 목록이 있어 탈출구를 둔다.
+    #    직접 지정해도 실제 수집 검증은 똑같이 거친다.
+    if link_pattern:
+        candidate = {**base, "type": "html", "url": url, "link_pattern": link_pattern}
+        ok, message = probe(candidate, timeout, strict=not relaxed)
+        print(f"  지정한 link_pattern={link_pattern!r} -> {'정상' if ok else '실패'}: {message}")
+        if ok:
+            candidate["verified"] = True
+            return candidate
+        return None
+
+    # 4) HTML 목록이면 링크를 형태별로 묶어 '자료 목록'답게 생긴 후보부터 실제로 돌려본다.
     suggestions = suggest_patterns(body, base_netloc=parsed.netloc)
     if not suggestions:
         print("  링크 패턴 후보를 찾지 못했습니다.")
@@ -676,14 +698,24 @@ def add_source(url: str, *, source_id: str, name: str, category: str,
 
     for rank, cand in enumerate(suggestions, 1):
         candidate = {**base, "type": "html", "url": url, "link_pattern": cand["pattern"]}
-        ok, message = probe(candidate, timeout)
+        ok, message = probe(candidate, timeout, strict=not relaxed)
         mark = "정상" if ok else "탈락"
+        cand["_why"] = message
         print(f"  후보{rank} link_pattern={cand['pattern']!r} (링크 {cand['count']}개) -> {mark}: {message}")
         if ok:
             candidate["verified"] = True
             return candidate
 
     print("  모든 후보가 검증을 통과하지 못했습니다.")
+    if not relaxed and any(
+        "날짜가 붙은 항목이" in c.get("_why", "") or "제목 평균" in c.get("_why", "")
+        for c in suggestions
+    ):
+        print()
+        print("  자동탐색용 추측(등록일 표기·제목 길이)에만 걸렸습니다.")
+        print("  이 주소가 맞다면 --relaxed 를 붙여 다시 실행하세요.")
+        print("  (건수·중복 제목 검사는 그대로 적용되므로 메뉴 링크는 계속 걸러집니다.)")
+        return None
     _print_onclick_hint(body, url)
     return None
 
@@ -723,6 +755,10 @@ def main() -> int:
                     help="--add와 함께: AI 키워드 필터 없이 목록 전체를 수집한다")
     ap.add_argument("--detail-url-template", default="", metavar="URL",
                     help="--add와 함께: onclick 방식 게시판의 상세 주소 형식 (인자 자리는 {0}, {1})")
+    ap.add_argument("--link-pattern", default="", metavar="REGEX",
+                    help="--add와 함께: 링크 패턴을 직접 지정 (자동 제안이 놓칠 때)")
+    ap.add_argument("--relaxed", action="store_true",
+                    help="--add와 함께: 자동탐색용 추측(등록일 표기·제목 길이)을 끈다")
     ap.add_argument("--save", action="store_true",
                     help="--add와 함께: 검증에 성공하면 sources.json에 바로 추가한다")
     args = ap.parse_args()
@@ -739,6 +775,8 @@ def main() -> int:
             timeout=args.timeout,
             keyword_filter=not args.no_keyword_filter,
             detail_url_template=args.detail_url_template,
+            relaxed=args.relaxed,
+            link_pattern=args.link_pattern,
         )
         if entry is None:
             return 1

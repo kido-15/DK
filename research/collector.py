@@ -295,7 +295,34 @@ class _ListParser(HTMLParser):
             anchor["parts"].append(text)
 
 
-ONCLICK_ARGS = re.compile(r"""['"]([^'"]{1,80})['"]""")
+# 따옴표로 감싼 인자와, 따옴표 없는 숫자 인자를 모두 잡는다.
+# fn_detail(3187780) 처럼 따옴표가 없는 게시판(과기정통부 등)을 놓치면
+# 그 기관 링크를 하나도 만들지 못한다.
+_ONCLICK_TOKEN = re.compile(r"""['"]([^'"]{1,80})['"]|(?<![\w.$])(\d{1,20})(?![\w.$])""")
+ONCLICK_ARGS = _ONCLICK_TOKEN  # 이전 이름 유지 (findall은 튜플을 주므로 onclick_args를 쓸 것)
+
+
+def onclick_args(onclick: str) -> list[str]:
+    """자바스크립트 호출에서 인자를 나온 순서대로 뽑는다.
+
+    goView('115116', '')  -> ["115116"]
+    fn_detail(3187780)    -> ["3187780"]
+    """
+    args: list[str] = []
+    for match in _ONCLICK_TOKEN.finditer(onclick or ""):
+        quoted, bare = match.group(1), match.group(2)
+        args.append(quoted if quoted is not None else bare)
+    return args
+
+# 링크 글자가 제목이 아니라 버튼인 목록이 있다 (카드형 게시판에 흔하다).
+# 예: <a>자세히보기</a> 옆에 제목이 따로 있는 SPRi 간행물
+BUTTON_LABELS = {
+    "자세히보기", "자세히", "더보기", "상세보기", "바로가기", "다운받기", "다운로드",
+    "내려받기", "보기", "view", "more", "detail", "download", "read more",
+}
+# 제목 자리에 오면 안 되는 항목 라벨
+META_LABELS = {"날짜", "등록일", "작성일", "게시일", "조회", "조회수", "첨부", "첨부파일", "파일", "구분"}
+_DATE_ONLY = re.compile(r"^[\d\s.\-/년월일:]+$")
 
 
 def href_from_onclick(onclick: str, template: str) -> str:
@@ -309,13 +336,27 @@ def href_from_onclick(onclick: str, template: str) -> str:
     """
     if not onclick or not template:
         return ""
-    args = ONCLICK_ARGS.findall(onclick)
+    args = onclick_args(onclick)
     if not args:
         return ""
     try:
         return template.format(*args)
     except (IndexError, KeyError):
         return ""
+
+
+def _title_from_context(chunks: list[str], min_len: int) -> str:
+    """버튼 링크 옆에 있는 실제 제목을 찾는다. 라벨·날짜만 있는 칸은 건너뛴다."""
+    for chunk in chunks:
+        text = chunk.strip()
+        if not text or len(text) < min_len:
+            continue
+        if text.lower() in BUTTON_LABELS or text in META_LABELS:
+            continue
+        if _DATE_ONLY.match(text) and parse_date(text):
+            continue  # 날짜 칸을 제목으로 삼지 않는다
+        return text
+    return ""
 
 
 def parse_html_list(html_text: str, source: dict) -> list[Item]:
@@ -346,6 +387,11 @@ def parse_html_list(html_text: str, source: dict) -> list[Item]:
         if exclude_regex and exclude_regex.search(href):
             continue
         title = normalize_space(" ".join(anchor["parts"])) or anchor["title_attr"]
+        start = anchor["chunk_index"]
+        if title.lower() in BUTTON_LABELS or len(title) < min_len:
+            # 링크 글자가 '자세히보기' 같은 버튼이면 제목은 링크 밖에 있다.
+            # 뒤따르는 텍스트에서 라벨과 날짜를 건너뛰고 첫 실질 문구를 제목으로 쓴다.
+            title = _title_from_context(parser.chunks[start : start + lookahead], min_len) or title
         if len(title) < min_len:
             continue
         url = urljoin(base_url, href)
@@ -353,7 +399,6 @@ def parse_html_list(html_text: str, source: dict) -> list[Item]:
             continue
         seen.add(url)
 
-        start = anchor["chunk_index"]
         context = " ".join(parser.chunks[start : start + lookahead])
         published = parse_date(title) or parse_date(context)
         items.append(
