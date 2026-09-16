@@ -14,6 +14,7 @@ sources.json의 수집 주소가 살아 있는지 점검하고, 깨진 소스는
 국내 기관 사이트는 해외 IP를 차단하므로 **국내 PC 또는 서울 리전**에서 실행해야 한다.
 
 사용법:
+    python3 research/discover.py --add "<목록 URL>"   # 새 게시판 URL 하나를 설정으로 만들어 준다
     python3 research/discover.py                 # 점검·후보 제시만 (파일 수정 없음)
     python3 research/discover.py --fix           # 가장 점수 높은 후보로 sources.json 갱신
     python3 research/discover.py --only kisdi,nars --verbose
@@ -80,6 +81,9 @@ class _AnchorParser(HTMLParser):
         a = {k.lower(): (v or "") for k, v in attrs}
         anchor = {
             "href": a.get("href", "").strip(),
+            # onclick으로만 상세를 여는 게시판이 많아, 무엇을 물어봐야 할지
+            # 알려주려면 이 속성이 필요하다 (collector도 같은 값을 쓴다)
+            "onclick": a.get("onclick", "").strip(),
             "title_attr": collector.normalize_space(a.get("title", "")),
             "chunk_index": len(self.chunks),
             "parts": [],
@@ -563,6 +567,144 @@ def inspect(source: dict, timeout: int) -> None:
             print(f"        · {title[:52]}")
 
 
+DEFAULT_CATEGORY = "연구기관"
+KNOWN_CATEGORIES = ("연구기관", "정부·부처", "해외 규제", "학술논문")
+
+
+def slug_from_url(url: str) -> str:
+    """주소에서 기본 id를 만든다. www/go/or/re/kr 같은 공통 조각은 뺀다."""
+    host = urlparse(url).netloc.lower()
+    parts = [p for p in host.split(".") if p not in ("www", "go", "or", "re", "kr", "com", "net", "co")]
+    return (parts[0] if parts else "source").replace("-", "_")
+
+
+ONCLICK_FUNC = re.compile(r"([A-Za-z_$][\w$.]{0,63})\s*\(")
+
+
+def onclick_report(html: str) -> list[tuple[str, int, list[str]]]:
+    """href 대신 onclick으로 상세 페이지를 여는 앵커를 함수별로 묶어 돌려준다.
+
+    국내 기관 게시판은 href="#none" onclick="goView('115116','')" 형태가
+    사실상 표준이다. 이런 페이지는 href만 보는 패턴 탐색으로는 후보가 아예
+    잡히지 않아 '모든 후보 탈락'으로 끝난다. 무엇을 확인해야 하는지
+    알려주려면 함수 이름과 실제 인자를 보여줘야 한다.
+    """
+    parser = parse_anchors(html)
+    groups: dict[str, list[list[str]]] = defaultdict(list)
+    for anchor in parser.anchors:
+        href = (anchor.get("href") or "").strip()
+        if href and not href.startswith(("#", "javascript:")):
+            continue  # 진짜 주소가 있는 링크는 기존 경로가 처리한다
+        source = (anchor.get("onclick") or "") or href
+        match = ONCLICK_FUNC.search(source)
+        args = collector.ONCLICK_ARGS.findall(source)
+        if not match or not args:
+            continue
+        groups[match.group(1)].append(args)
+    ranked = sorted(groups.items(), key=lambda kv: -len(kv[1]))
+    return [(fn, len(calls), calls[0]) for fn, calls in ranked]
+
+
+def pattern_from_template(template: str) -> str:
+    """detail_url_template에서 link_pattern을 뽑는다 (view.do 등 경로 끝부분)."""
+    path = urlparse(template.split("{")[0]).path
+    tail = path.rsplit("/", 1)[-1] or path
+    return re.escape(tail) if tail else ""
+
+
+def add_source(url: str, *, source_id: str, name: str, category: str,
+               timeout: int, keyword_filter: bool,
+               detail_url_template: str = "") -> dict | None:
+    """목록 URL 하나로 sources.json에 넣을 설정을 만들어 돌려준다.
+
+    수집까지 실제로 해 보고 게이트를 통과한 설정만 내놓는다. 후보를 그냥
+    출력하기만 하면 '되는 줄 알았는데 조용히 0건'이 되풀이되기 때문이다.
+    """
+    url = clean_url(url)
+    parsed = urlparse(url)
+    base_url = f"{parsed.scheme}://{parsed.netloc}"
+    source_id = source_id or slug_from_url(url)
+    base = {
+        "id": source_id,
+        "name": name or source_id,
+        "category": category,
+        "base_url": base_url,
+        "keyword_filter": keyword_filter,
+        "enabled": True,
+    }
+
+    print(f"[분석] {url}")
+
+    # 1) RSS/Atom이면 link_pattern 자체가 필요 없다 — 가장 안정적이므로 먼저 본다.
+    try:
+        body = collector.fetch(url, timeout=timeout)
+    except Exception as e:  # noqa: BLE001
+        print(f"  수집 실패: {type(e).__name__} {e}")
+        print("  - 해외 IP를 차단하는 기관일 수 있습니다(국내 PC에서 실행해 보세요).")
+        return None
+    print(f"  수신 {len(body):,}자")
+
+    if looks_like_feed(body):
+        candidate = {**base, "type": "rss", "url": url}
+        ok, message = probe(candidate, timeout)
+        print(f"  RSS 피드로 인식 -> {'정상' if ok else '실패'}: {message}")
+        if ok:
+            candidate["verified"] = True
+            return candidate
+
+    # 2) onclick 방식 게시판은 템플릿을 받아야 링크를 만들 수 있다.
+    if detail_url_template:
+        candidate = {
+            **base, "type": "html", "url": url,
+            "detail_url_template": detail_url_template,
+            "link_pattern": pattern_from_template(detail_url_template),
+        }
+        ok, message = probe(candidate, timeout)
+        print(f"  detail_url_template 적용 -> {'정상' if ok else '실패'}: {message}")
+        if ok:
+            candidate["verified"] = True
+            return candidate
+        print("  - 템플릿의 자리표시자가 맞는지 확인하세요 (첫 인자가 {0}, 둘째가 {1}).")
+        return None
+
+    # 3) HTML 목록이면 링크를 형태별로 묶어 '자료 목록'답게 생긴 후보부터 실제로 돌려본다.
+    suggestions = suggest_patterns(body, base_netloc=parsed.netloc)
+    if not suggestions:
+        print("  링크 패턴 후보를 찾지 못했습니다.")
+        print("  - 목록을 자바스크립트로 그리는 게시판일 수 있습니다. 해당 기관 RSS가 있으면 그 주소를 주세요.")
+        return None
+
+    for rank, cand in enumerate(suggestions, 1):
+        candidate = {**base, "type": "html", "url": url, "link_pattern": cand["pattern"]}
+        ok, message = probe(candidate, timeout)
+        mark = "정상" if ok else "탈락"
+        print(f"  후보{rank} link_pattern={cand['pattern']!r} (링크 {cand['count']}개) -> {mark}: {message}")
+        if ok:
+            candidate["verified"] = True
+            return candidate
+
+    print("  모든 후보가 검증을 통과하지 못했습니다.")
+    _print_onclick_hint(body, url)
+    return None
+
+
+def _print_onclick_hint(body: str, url: str) -> None:
+    """onclick 방식 게시판이면 무엇을 확인하면 되는지 구체적으로 알려준다."""
+    report = onclick_report(body)
+    if not report:
+        print("  - 목록을 자바스크립트로 그리는 게시판일 수 있습니다. 기관 RSS 주소가 있으면 그것을 주세요.")
+        return
+    func, count, sample = report[0]
+    args = ", ".join(f"{{{i}}}={v}" for i, v in enumerate(sample))
+    print()
+    print(f"  이 게시판은 주소 대신 자바스크립트로 상세 페이지를 엽니다: {func}(...) 형태 {count}개")
+    print(f"  첫 글의 인자: {args}")
+    print("  브라우저에서 목록의 글 하나를 클릭해 주소창 주소를 확인한 뒤, 그 인자가 들어가는")
+    print("  자리를 {0}으로 바꿔 아래처럼 다시 실행하세요.")
+    print(f'    python3 research/discover.py --add "{url}" \\')
+    print('        --detail-url-template "https://.../view.do?id={0}"')
+
+
 def main() -> int:
     ap = argparse.ArgumentParser()
     ap.add_argument("--fix", action="store_true", help="가장 점수 높은 후보로 sources.json을 갱신한다")
@@ -571,10 +713,49 @@ def main() -> int:
     ap.add_argument("--verbose", action="store_true", help="탐색 과정을 자세히 출력한다")
     ap.add_argument("--inspect", default="",
                     help="해당 소스 페이지의 링크 구조를 그대로 출력한다 (id 콤마 구분, 'all' 가능)")
+    ap.add_argument("--add", default="", metavar="URL",
+                    help="새 게시판 목록 URL로 sources.json 설정을 만들어 출력한다")
+    ap.add_argument("--id", default="", help="--add와 함께: 소스 id (기본: 주소에서 자동 생성)")
+    ap.add_argument("--name", default="", help="--add와 함께: 메일에 표시될 이름")
+    ap.add_argument("--category", default=DEFAULT_CATEGORY,
+                    help=f"--add와 함께: 분류 {KNOWN_CATEGORIES}")
+    ap.add_argument("--no-keyword-filter", action="store_true",
+                    help="--add와 함께: AI 키워드 필터 없이 목록 전체를 수집한다")
+    ap.add_argument("--detail-url-template", default="", metavar="URL",
+                    help="--add와 함께: onclick 방식 게시판의 상세 주소 형식 (인자 자리는 {0}, {1})")
+    ap.add_argument("--save", action="store_true",
+                    help="--add와 함께: 검증에 성공하면 sources.json에 바로 추가한다")
     args = ap.parse_args()
 
     with open(CONFIG_PATH, encoding="utf-8") as f:
         config = json.load(f)
+
+    if args.add:
+        entry = add_source(
+            args.add,
+            source_id=args.id,
+            name=args.name,
+            category=args.category,
+            timeout=args.timeout,
+            keyword_filter=not args.no_keyword_filter,
+            detail_url_template=args.detail_url_template,
+        )
+        if entry is None:
+            return 1
+        print("\n[sources.json의 sources 배열에 넣을 설정]")
+        print(json.dumps(entry, ensure_ascii=False, indent=2))
+        if not args.save:
+            print("\n--save를 붙이면 sources.json에 바로 추가합니다.")
+            return 0
+        if any(s["id"] == entry["id"] for s in config["sources"]):
+            print(f"\nid '{entry['id']}'가 이미 있습니다. --id로 다른 이름을 지정하세요.")
+            return 1
+        config["sources"].append(entry)
+        with open(CONFIG_PATH, "w", encoding="utf-8") as f:
+            json.dump(config, f, ensure_ascii=False, indent=2)
+            f.write("\n")
+        print(f"\nsources.json에 추가했습니다: {entry['id']}")
+        return 0
 
     if args.inspect:
         targets = {s.strip() for s in args.inspect.split(",") if s.strip()}

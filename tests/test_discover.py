@@ -203,6 +203,28 @@ few_items = [collector.Item("t", "t", "", "AI 정책 보고서 제목입니다",
 passed, reason = discover.passes_gate(few_items)
 check("[회귀] 3건짜리 묶음은 탈락", passed, False)
 
+# [사례 8] onclick으로만 상세를 여는 국내 기관 게시판 (KISDI 등)
+#          href만 보면 후보가 아예 안 잡혀 '모든 후보 탈락'으로 끝나므로,
+#          무엇을 물어봐야 하는지 알려주려면 함수 이름과 인자를 읽어야 한다.
+ONCLICK_HTML = """<html><body><ul>
+  <li><a href="#none" onclick="goView('115116', '');">AI 기본법 이행점검 결과</a><span>2026.09.15</span></li>
+  <li><a href="#none" onclick="goView('115062', '');">알고리즘 투명성 해설서 발간</a><span>2026.09.14</span></li>
+  <li><a href="/menu.do">메뉴 링크</a></li>
+</ul></body></html>"""
+report = discover.onclick_report(ONCLICK_HTML)
+check("[회귀] onclick 함수 이름을 읽는다", report[0][0], "goView")
+check("[회귀] onclick 앵커 개수", report[0][1], 2)
+check("[회귀] onclick 첫 인자", report[0][2][0], "115116")
+check("[회귀] 진짜 href가 있는 링크는 제외", len(report), 1)
+
+# 템플릿에서 link_pattern을 뽑아낸다 (onclick으로 만든 주소에 적용된다)
+check("[회귀] 템플릿에서 link_pattern 추출",
+      discover.pattern_from_template("https://www.kisdi.re.kr/bbs/view.do?key=abc&bbsSn={0}"),
+      "view\\.do")
+
+# 주소에서 기본 id 생성
+check("[회귀] 주소로 기본 id 생성", discover.slug_from_url("https://www.kisdi.re.kr/bbs/list.do"), "kisdi")
+
 if FAILURES:
     print(f"\n회귀 테스트 실패 {len(FAILURES)}건\n")
     for f in FAILURES:

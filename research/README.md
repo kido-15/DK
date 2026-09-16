@@ -31,6 +31,51 @@ python3 research/discover.py --fix
 3. 목록 페이지는 열리는데 링크 패턴이 안 맞으면 → 페이지의 링크를 형태별로 묶어 '자료 목록'답게 생긴 것을 자동 선택
 4. 주소 자체가 404면 → 홈에서 '발간물/보고서/자료실' 메뉴를 따라가 3을 반복
 
+## 새 게시판 추가하기 (`--add`)
+
+**수집하고 싶은 게시판의 "목록" 페이지 주소만 있으면 됩니다.** 브라우저에서 그 게시판을
+열고 주소창을 복사해 아래처럼 넣으면, 실제로 수집까지 해 보고 **성공한 설정만** 출력합니다.
+
+```bash
+python3 research/discover.py --add "https://www.example.re.kr/board/list.do" \
+    --id example_report --name "○○연구원 연구보고서"
+```
+
+출력된 JSON을 `sources.json`의 `sources` 배열에 붙여넣으면 끝입니다.
+`--save`를 붙이면 파일에 바로 추가합니다.
+
+| 옵션 | 용도 |
+| --- | --- |
+| `--id` | 소스 식별자 (생략하면 주소에서 자동 생성). 상태 저장 키라 **나중에 바꾸지 마세요** |
+| `--name` | 메일에 표시될 이름 |
+| `--category` | `연구기관`(기본) / `정부·부처` / `해외 규제` / `학술논문` |
+| `--no-keyword-filter` | AI 키워드 필터 없이 목록 전체 수집 (이미 AI 전문 게시판일 때) |
+| `--save` | 검증 성공 시 `sources.json`에 바로 추가 |
+
+### 링크가 자바스크립트인 게시판 (국내 기관에 매우 흔함)
+
+국내 기관 게시판은 주소 대신 `href="#none" onclick="goView('115116','')"` 형태를 쓰는
+곳이 많습니다. 이런 경우 `--add`가 이렇게 알려줍니다.
+
+```
+이 게시판은 주소 대신 자바스크립트로 상세 페이지를 엽니다: goView(...) 형태 18개
+첫 글의 인자: {0}=115095
+```
+
+**목록에서 글 하나를 클릭해 주소창 주소를 확인**한 뒤, 그 인자(`115095`)가 들어가 있는
+자리를 `{0}`으로 바꿔 다시 실행하면 됩니다.
+
+```bash
+python3 research/discover.py --add "https://www.kisdi.re.kr/bbs/list.do?key=m2101113055776" \
+    --id kisdi_press --name "KISDI 보도자료" \
+    --detail-url-template "https://www.kisdi.re.kr/bbs/view.do?key=m2101113055776&bbsSn={0}"
+```
+
+인자가 여러 개면 순서대로 `{0}`, `{1}`을 쓰면 됩니다.
+
+> `--add`는 후보를 그냥 출력하지 않고 **실제로 수집해 검증을 통과한 것만** 내놓습니다.
+> "설정은 넣었는데 조용히 0건"이 되는 상황을 막기 위해서입니다.
+
 출력 예시:
 
 ```
@@ -165,7 +210,7 @@ python3 tests/test_handler.py      # Lambda 핸들러 (S3·SMTP는 가짜로 대
 | `research/collector.py` | 수집 엔진 (RSS/Atom 파서, HTML 목록 파서, 키워드·기간 필터) |
 | `research/digest.py` | 신규 판정, 메일 본문(HTML/텍스트) 생성, 발송 |
 | `research/sources.json` | 수집 대상 목록 — **여기만 고치면 대상이 바뀝니다** |
-| `research/discover.py` | 주소 점검 및 RSS 자동 탐지 (`--fix`로 자동 수정) |
+| `research/discover.py` | 새 게시판 추가(`--add`), 주소 점검 및 RSS 자동 탐지(`--fix`로 자동 수정) |
 | `lambda/research_handler.py` | Lambda 진입점 (상태를 S3에 저장) |
 | `lambda/deploy_research.sh` | 배포 스크립트 |
 | `scripts/run_research_digest.py` | 로컬 실행 (상태를 `data/seen_research.json`에 저장) |
