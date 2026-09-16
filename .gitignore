@@ -1,0 +1,6 @@
+__pycache__/
+*.pyc
+lambda/function.zip
+lambda/board_digest.zip
+out.json
+data/seen_board_items.json

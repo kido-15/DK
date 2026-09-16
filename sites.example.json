@@ -1,0 +1,46 @@
+{
+  "_note": "형식 예시 파일입니다. 실제 운영 설정은 sites.json에 넣으세요. 아래 URL/셀렉터는 예시이므로 반드시 --probe로 확인한 값으로 바꿔야 합니다.",
+  "defaults": { "lookback_days": 1, "pages": 1 },
+  "exclude_keywords": ["채용", "입찰"],
+  "sites": [
+    {
+      "id": "example_table_board",
+      "name": "○○연구원 연구보고서",
+      "list_url": "https://www.example.re.kr/board/list.do",
+      "enabled": false,
+      "type": "html",
+      "row_selector": "table.board_list tbody tr",
+      "title_selector": "td.subject a",
+      "date_selector": "td.date",
+      "skip_row_classes": ["notice"],
+      "pages": 1,
+      "params": { "menuNo": "200023" }
+    },
+    {
+      "id": "example_js_board",
+      "name": "○○원 이슈리포트 (javascript 링크형)",
+      "list_url": "https://www.example.kr/list.do",
+      "enabled": false,
+      "row_selector": "ul.bbs-list li",
+      "title_selector": "a.tit",
+      "date_selector": "span.info",
+      "category_selector": "span.cate",
+      "detail_url_template": "https://www.example.kr/view.do?date={arg0}&no={arg1}"
+    },
+    {
+      "id": "example_rss",
+      "name": "○○기관 보도자료 (RSS)",
+      "list_url": "https://www.example.go.kr/rss/press.xml",
+      "enabled": false,
+      "type": "rss"
+    },
+    {
+      "id": "example_euckr",
+      "name": "○○협회 자료실 (EUC-KR 사이트)",
+      "list_url": "https://www.example.or.kr/bbs/list.php",
+      "enabled": false,
+      "encoding": "cp949",
+      "headers": { "Referer": "https://www.example.or.kr/" }
+    }
+  ]
+}

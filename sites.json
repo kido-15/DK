@@ -1,0 +1,12 @@
+{
+  "_note": "게시판을 추가하려면 sites 배열에 항목을 넣으세요. 필수는 id/name/list_url 3개이며, 셀렉터를 생략하면 자동탐지합니다. 형식과 예시는 sites.example.json, 필드 설명은 boarddigest/config.py 상단 주석 참고.",
+  "defaults": {
+    "lookback_days": 1,
+    "pages": 1,
+    "timeout": 20,
+    "retries": 3
+  },
+  "include_keywords": [],
+  "exclude_keywords": ["채용", "입찰", "계약", "안내문", "휴관"],
+  "sites": []
+}
