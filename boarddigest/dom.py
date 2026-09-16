@@ -44,7 +44,7 @@ _WS = re.compile(r"\s+")
 class Node:
     """HTML 요소 하나. tag가 None이면 문서 루트."""
 
-    __slots__ = ("tag", "attrs", "children", "parent", "_texts")
+    __slots__ = ("tag", "attrs", "children", "parent", "_content")
 
     def __init__(self, tag: str | None, attrs: dict[str, str] | None = None,
                  parent: "Node | None" = None) -> None:
@@ -52,7 +52,10 @@ class Node:
         self.attrs = attrs or {}
         self.children: list[Node] = []
         self.parent = parent
-        self._texts: list[str] = []
+        # 텍스트와 자식 요소를 문서에 나온 순서 그대로 담는다.
+        # children만 보고 텍스트를 뒤에 몰아 붙이면
+        # <td>앞<b>가운데</b>뒤</td> 가 "앞 뒤 가운데"로 뒤집힌다.
+        self._content: list[str | Node] = []
 
     # --- 기본 접근자 ---------------------------------------------------
     def get(self, name: str, default: str = "") -> str:
@@ -68,12 +71,23 @@ class Node:
         self._collect_text(parts)
         return _WS.sub(" ", separator.join(parts)).strip()
 
+    def direct_text(self) -> str:
+        """자식 요소를 뺀, 이 노드에 직접 붙어있는 텍스트.
+
+        <li><strong>등록일</strong> 2026.08.13</li> 처럼 라벨과 값이 한 칸에
+        들어있는 게시판에서 값만 골라내는 데 쓴다.
+        """
+        parts = [p for p in self._content if isinstance(p, str)]
+        return _WS.sub(" ", " ".join(parts)).strip()
+
     def _collect_text(self, parts: list[str]) -> None:
         if self.tag in SKIP_TEXT_TAGS:
             return
-        parts.extend(self._texts)
-        for child in self.children:
-            child._collect_text(parts)
+        for piece in self._content:
+            if isinstance(piece, str):
+                parts.append(piece)
+            else:
+                piece._collect_text(parts)
 
     def iter_descendants(self):
         for child in self.children:
@@ -128,6 +142,7 @@ class _Builder(HTMLParser):
                 self._stack.pop()
         node = Node(tag, {k.lower(): (v or "") for k, v in attrs}, self._current)
         self._current.children.append(node)
+        self._current._content.append(node)
         if tag not in VOID_TAGS:
             self._stack.append(node)
 
@@ -135,6 +150,7 @@ class _Builder(HTMLParser):
         tag = tag.lower()
         node = Node(tag, {k.lower(): (v or "") for k, v in attrs}, self._current)
         self._current.children.append(node)
+        self._current._content.append(node)
 
     def handle_endtag(self, tag: str) -> None:
         tag = tag.lower()
@@ -148,13 +164,13 @@ class _Builder(HTMLParser):
 
     def handle_data(self, data: str) -> None:
         if data.strip():
-            self._current._texts.append(data)
+            self._current._content.append(data)
 
     def handle_entityref(self, name: str) -> None:
-        self._current._texts.append(unescape(f"&{name};"))
+        self._current._content.append(unescape(f"&{name};"))
 
     def handle_charref(self, name: str) -> None:
-        self._current._texts.append(unescape(f"&#{name};"))
+        self._current._content.append(unescape(f"&#{name};"))
 
 
 def parse_html(html: str) -> Node:

@@ -1,12 +1,42 @@
 {
-  "_note": "게시판을 추가하려면 sites 배열에 항목을 넣으세요. 필수는 id/name/list_url 3개이며, 셀렉터를 생략하면 자동탐지합니다. 형식과 예시는 sites.example.json, 필드 설명은 boarddigest/config.py 상단 주석 참고.",
+  "_note": "게시판을 추가하려면 sites 배열에 항목을 넣으세요. 필수는 id/name/list_url 3개이며, 셀렉터를 생략하면 자동탐지합니다. 형식과 예시는 sites.example.json, 필드 설명은 boarddigest/config.py 상단 주석 참고. 새 게시판은 반드시 --probe로 확인한 값으로 넣으세요.",
   "defaults": {
     "lookback_days": 1,
     "pages": 1,
     "timeout": 20,
-    "retries": 3
+    "retries": 4
   },
   "include_keywords": [],
   "exclude_keywords": ["채용", "입찰", "계약", "안내문", "휴관"],
-  "sites": []
+  "sites": [
+    {
+      "id": "kisdi_press",
+      "name": "KISDI 보도자료",
+      "list_url": "https://www.kisdi.re.kr/bbs/list.do?key=m2101113055776",
+      "row_selector": "div.board_list > ul > li",
+      "title_selector": "a > strong",
+      "link_selector": "a",
+      "date_selector": "a ul li",
+      "detail_url_template": "https://www.kisdi.re.kr/bbs/view.do?key=m2101113055776&bbsSn={arg0}"
+    },
+    {
+      "id": "kisdi_notice",
+      "name": "KISDI 공지사항",
+      "list_url": "https://www.kisdi.re.kr/bbs/list.do?key=m2101113055944",
+      "row_selector": "div.board_list > ul > li",
+      "title_selector": "a > strong",
+      "link_selector": "a",
+      "date_selector": "a ul li",
+      "detail_url_template": "https://www.kisdi.re.kr/bbs/view.do?key=m2101113055944&bbsSn={arg0}"
+    },
+    {
+      "id": "kisdi_column",
+      "name": "KISDI 전문가 칼럼",
+      "list_url": "https://www.kisdi.re.kr/bbs/list.do?key=m2101113043145",
+      "row_selector": "div.board_list > ul > div.column, div.board_list > ul > li",
+      "title_selector": "div.text h4, a > strong",
+      "link_selector": "a",
+      "detail_url_template": "https://www.kisdi.re.kr/bbs/view.do?key=m2101113043145&bbsSn={arg0}"
+    }
+  ]
 }

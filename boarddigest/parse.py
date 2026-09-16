@@ -27,6 +27,8 @@ _NOISE_TITLES = {
 _PAGE_NUMBER = re.compile(r"^\s*\d{1,3}\s*$")
 # javascript:goView('1234') 처럼 링크가 함수 호출인 경우 인자를 뽑는다
 _JS_ARGS = re.compile(r"""['"]([\w-]{1,64})['"]""")
+# onclick="goView('1234', '')" 에서 함수 이름 (probe가 설정 힌트를 만들 때 쓴다)
+_JS_FUNC = re.compile(r"([A-Za-z_$][\w$.]{0,63})\s*\(")
 
 
 @dataclass
@@ -71,19 +73,55 @@ def _select_field(row: Node, selector: str | None) -> tuple[Node | None, str]:
     return node, (node.get(attr) if attr else node.text())
 
 
-def _resolve_link(base_url: str, href: str, cfg: dict) -> str:
-    """상대경로/javascript: 링크를 최종 URL로 만든다."""
+def js_call_args(href: str, anchor: Node | None = None) -> list[str]:
+    """링크가 자바스크립트 함수 호출일 때 그 인자를 순서대로 뽑는다.
+
+    국내 기관 게시판(전자정부 프레임워크 계열)은 실제 주소 대신
+    href="#none" onclick="goView('115095', '')" 형태를 쓰는 경우가 매우 흔하다.
+    href의 javascript: 스킴만 보면 이런 게시판은 링크를 하나도 만들지 못한다.
+    """
+    sources = []
+    if href.lower().startswith("javascript:"):
+        sources.append(href)
+    if anchor is not None:
+        sources.append(anchor.get("onclick"))
+        sources.append(anchor.get("href"))
+    for source in sources:
+        args = _JS_ARGS.findall(source or "")
+        if args:
+            return args
+    return []
+
+
+def js_call_name(anchor: Node | None) -> str:
+    """onclick(없으면 href)에서 호출하는 함수 이름. probe 안내 문구용."""
+    if anchor is None:
+        return ""
+    for source in (anchor.get("onclick"), anchor.get("href")):
+        source = (source or "").strip()
+        if source.lower().startswith("javascript:"):
+            source = source[len("javascript:"):]
+        match = _JS_FUNC.search(source)
+        if match:
+            return match.group(1)
+    return ""
+
+
+def _resolve_link(base_url: str, href: str, cfg: dict, anchor: Node | None = None) -> str:
+    """상대경로 / javascript: / onclick 링크를 최종 URL로 만든다."""
     href = (href or "").strip()
-    if not href or href.startswith("#"):
-        href = ""
+    if href.startswith("#"):
+        href = ""  # "#", "#none" 처럼 자리만 채운 href
     template = cfg.get("detail_url_template")
-    if href.lower().startswith("javascript:") or (not href and template):
-        ids = _JS_ARGS.findall(href)
-        if template and ids:
-            return template.format(id=ids[0], **{f"arg{i}": v for i, v in enumerate(ids)})
-        return ""
-    if not href:
-        return ""
+    if href.lower().startswith("javascript:") or not href:
+        args = js_call_args(href, anchor)
+        if not template or not args:
+            return ""
+        try:
+            return template.format(id=args[0], **{f"arg{i}": v for i, v in enumerate(args)})
+        except (IndexError, KeyError):
+            # 템플릿이 없는 자리(arg3 등)를 참조하면 링크만 비우고 계속 진행한다
+            return ""
     return urljoin(base_url, href)
 
 
@@ -116,7 +154,22 @@ def _row_date_node(row: Node, exclude: Node | None) -> tuple[Node | None, str]:
             best = (node, text)
     if best:
         return best
-    # 잎 노드에 없으면 행 전체 텍스트에서 찾는다 (제목 텍스트는 뺀다)
+
+    # 제목 링크 '안쪽'에 등록일이 들어있는 구조 (KISDI 등 국내 기관에 흔하다)
+    #   <a ...><strong>제목</strong><ul><li><strong>등록일</strong> 2026.08.13</li></ul></a>
+    # 이때는 위 잎 노드 훑기가 제목 링크를 통째로 건너뛰므로 아무것도 찾지 못한다.
+    # 라벨을 뺀 '직접 텍스트'만 보고, 제목을 날짜로 오인하지 않도록 연도가 있는 표기만 받는다.
+    for node in row.iter_descendants():
+        if node is exclude:
+            continue
+        own = node.direct_text()
+        if own and parse_date(own, require_year=True) is not None:
+            if best is None or len(own) < len(best[1]):
+                best = (node, own)
+    if best:
+        return best
+
+    # 그래도 없으면 행 전체 텍스트에서 찾는다 (제목 텍스트는 뺀다)
     whole = row.text()
     if exclude is not None:
         whole = whole.replace(exclude.text(), " ")
@@ -142,9 +195,26 @@ def autodetect_rows(doc: Node) -> tuple[list[tuple[Node, Node]], dict[str, str]]
     if not candidates:
         return [], {}
 
+    # 목록의 '행'은 다른 행을 품지 않는다. 페이지 어딘가에 날짜가 있기만 하면
+    # 바깥 컨테이너(footer, wrapper 등)도 후보로 잡히는데, 이들은 행 수가 많아
+    # 실제 목록을 이겨버린다. 다른 후보 행을 감싸는 시그니처를 먼저 걸러낸다.
+    owner = {id(node): sig for sig, rows in candidates.items() for node, _ in rows}
+    containers: set[str] = set()
+    for signature, rows in candidates.items():
+        if len(rows) < 2:
+            continue  # 한 번뿐인 구조는 목록이 아니므로 기준으로 삼지 않는다
+        for node, _ in rows:
+            parent = node.parent
+            while parent is not None:
+                outer = owner.get(id(parent))
+                if outer is not None and outer != signature:
+                    containers.add(outer)
+                parent = parent.parent
+    usable = {s: r for s, r in candidates.items() if s not in containers} or candidates
+
     # 같은 구조가 여러 번 반복되는 것이 목록이다. 동률이면 더 깊은(구체적인) 구조를 택한다.
     signature, rows = max(
-        candidates.items(), key=lambda kv: (len(kv[1]), kv[0].count(">"))
+        usable.items(), key=lambda kv: (len(kv[1]), kv[0].count(">"))
     )
     if len(rows) < 2:
         return [], {}
@@ -215,6 +285,8 @@ def parse_board(html: str, base_url: str, cfg: dict) -> ParseResult:
 
     skip_classes = {c.lower() for c in cfg.get("skip_row_classes", ["notice", "notice_top", "fixed"])}
     seen_keys: set[str] = set()
+    js_function = ""          # 링크가 함수 호출일 때 그 이름/인자를 기억해 두었다가
+    js_sample: list[str] = []  # 아래 경고에서 바로 쓸 수 있는 템플릿 예시로 보여준다
 
     for row, auto_anchor in pairs:
         if skip_classes and {c.lower() for c in row.classes} & skip_classes:
@@ -229,15 +301,23 @@ def parse_board(html: str, base_url: str, cfg: dict) -> ParseResult:
             continue
 
         link_selector = cfg.get("link_selector") or cfg.get("title_selector")
+        anchor: Node | None = None
         href = ""
         if link_selector:
             if "@" not in link_selector:
                 link_selector = f"{link_selector}@href"
-            _, href = _select_field(row, link_selector)
-        if not href:
-            anchor = (title_node if title_node is not None and title_node.tag == "a" else None) or row.select_one("a[href]")
-            href = anchor.get("href") if anchor is not None else ""
-        url = _resolve_link(base_url, href, cfg)
+            anchor, href = _select_field(row, link_selector)
+        if anchor is None or anchor.tag != "a":
+            # onclick을 읽어야 하므로 href 문자열이 아니라 a 노드 자체가 필요하다
+            anchor = (title_node if title_node is not None and title_node.tag == "a" else None)
+            # href 있는 앵커를 먼저 찾고, onclick만 있는 <a>는 그다음에 본다
+            anchor = anchor or row.select_one("a[href]") or row.select_one("a")
+            if not href:
+                href = anchor.get("href") if anchor is not None else ""
+        url = _resolve_link(base_url, href, cfg, anchor)
+        if anchor is not None and not js_function:
+            js_function = js_call_name(anchor)
+            js_sample = js_call_args(href, anchor)
 
         date_node, raw_date = _select_field(row, cfg.get("date_selector"))
         if not raw_date:
@@ -265,10 +345,18 @@ def parse_board(html: str, base_url: str, cfg: dict) -> ParseResult:
     if pairs and not result.items:
         result.warnings.append("행은 찾았지만 제목을 추출하지 못했습니다. title_selector를 확인하세요.")
     if result.items and not any(i.url for i in result.items):
-        result.warnings.append(
-            "링크를 만들지 못했습니다. 목록이 javascript: 함수 호출이면 "
-            "detail_url_template(예: \"https://.../view.do?no={arg0}\")을 지정하세요."
-        )
+        if js_function and js_sample:
+            args = ", ".join(f"{{arg{i}}}={v}" for i, v in enumerate(js_sample))
+            result.warnings.append(
+                f"링크를 만들지 못했습니다. 목록이 {js_function}({args}) 형태의 함수 호출입니다. "
+                "상세 페이지를 한 번 열어 주소를 확인한 뒤 detail_url_template에 "
+                "그 주소를 {arg0} 자리와 함께 적어주세요."
+            )
+        else:
+            result.warnings.append(
+                "링크를 만들지 못했습니다. 목록이 javascript: 함수 호출이면 "
+                "detail_url_template(예: \"https://.../view.do?no={arg0}\")을 지정하세요."
+            )
     undated = [i for i in result.items if i.posted is None]
     if result.items and len(undated) == len(result.items):
         result.warnings.append(

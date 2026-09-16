@@ -34,10 +34,18 @@ def yesterday_kst() -> date:
     return today_kst() - timedelta(days=1)
 
 
-def parse_date(text: str, *, today: date | None = None, explicit_format: str | None = None) -> date | None:
+def parse_date(
+    text: str,
+    *,
+    today: date | None = None,
+    explicit_format: str | None = None,
+    require_year: bool = False,
+) -> date | None:
     """문자열에서 날짜를 찾아 반환. 못 찾으면 None.
 
     explicit_format을 주면 strptime을 먼저 시도한다 (예: "%Y.%m.%d").
+    require_year=True면 연도가 생략된 'M/D' 추정을 쓰지 않는다. 제목 안에서
+    날짜를 찾을 때 "3/4분기" 같은 표현을 날짜로 오인하지 않기 위한 옵션이다.
     """
     if not text:
         return None
@@ -61,6 +69,8 @@ def parse_date(text: str, *, today: date | None = None, explicit_format: str | N
         return today - timedelta(days=int(relative.group(1)))
 
     for pattern, kind in _PATTERNS:
+        if require_year and kind == "md":
+            continue
         match = pattern.search(text)
         if not match:
             continue

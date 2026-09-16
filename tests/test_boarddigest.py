@@ -17,7 +17,7 @@ import tempfile
 import threading
 import types
 import unittest
-from datetime import date
+from datetime import date, timedelta
 from email import message_from_string
 from email.header import decode_header, make_header
 from functools import partial
@@ -32,7 +32,9 @@ from boarddigest.config import ConfigError, normalize  # noqa: E402
 from boarddigest.dates import format_kr, parse_date, yesterday_kst  # noqa: E402
 from boarddigest.dom import parse_html  # noqa: E402
 from boarddigest.mail import build_html, build_subject, build_text  # noqa: E402
-from boarddigest.parse import autodetect_rows, parse_board, parse_feed  # noqa: E402
+from boarddigest.parse import (  # noqa: E402
+    autodetect_rows, js_call_args, js_call_name, parse_board, parse_feed,
+)
 from boarddigest.runner import commit_state, run_digest, target_dates_for  # noqa: E402
 from boarddigest.state import MemoryStore  # noqa: E402
 
@@ -66,6 +68,18 @@ class TestDom(unittest.TestCase):
         doc = parse_html("<p>AI &amp; 규제<script>var x='숨김';</script></p>")
         self.assertEqual(doc.select_one("p").text(), "AI & 규제")
 
+    def test_text_keeps_document_order(self):
+        # <td>앞<b>가운데</b>뒤</td> 를 "앞 뒤 가운데"로 읽으면 제목이 조용히 뒤집힌다
+        doc = parse_html("<td>앞<b>가운데</b>뒤</td>")
+        self.assertEqual(doc.select_one("td").text(), "앞 가운데 뒤")
+        doc = parse_html('<strong><span class="notice">공지</span> 실제 제목</strong>')
+        self.assertEqual(doc.select_one("strong").text(), "공지 실제 제목")
+
+    def test_direct_text_excludes_child_labels(self):
+        doc = parse_html("<li><strong>등록일</strong> 2026.09.15</li>")
+        self.assertEqual(doc.select_one("li").direct_text(), "2026.09.15")
+        self.assertEqual(doc.select_one("li").text(), "등록일 2026.09.15")
+
     def test_unbalanced_close_tag_ignored(self):
         doc = parse_html("<div><p>본문</div></p><div>둘째</div>")
         self.assertEqual(len(doc.select("div")), 2)
@@ -95,6 +109,12 @@ class TestDates(unittest.TestCase):
     def test_explicit_format_wins(self):
         self.assertEqual(parse_date("15/09/2026", explicit_format="%d/%m/%Y"), date(2026, 9, 15))
 
+    def test_require_year_skips_bare_month_day(self):
+        # 제목 안을 뒤질 때 "3/4분기" 같은 표현을 날짜로 오인하면 안 된다
+        self.assertIsNone(parse_date("AI 기본법 3/4분기 점검", require_year=True))
+        self.assertIsNotNone(parse_date("AI 기본법 3/4분기 점검"))
+        self.assertEqual(parse_date("2026.09.15", require_year=True), date(2026, 9, 15))
+
     def test_month_day_rolls_back_a_year(self):
         self.assertEqual(parse_date("12-31", today=TODAY), date(2025, 12, 31))
 
@@ -103,6 +123,7 @@ class TestParse(unittest.TestCase):
     def setUp(self):
         self.table_html = (FIXTURES / "board_table.html").read_text(encoding="utf-8")
         self.list_html = (FIXTURES / "board_list.html").read_text(encoding="utf-8")
+        self.onclick_html = (FIXTURES / "board_onclick.html").read_text(encoding="utf-8")
 
     def test_table_with_selectors(self):
         result = parse_board(self.table_html, "https://demo.re.kr/board/list.do", {
@@ -144,6 +165,60 @@ class TestParse(unittest.TestCase):
     def test_javascript_link_without_template_warns(self):
         result = parse_board(self.list_html, "https://demo.kr/list.do", {"id": "s", "name": "s"})
         self.assertTrue(any("detail_url_template" in w for w in result.warnings))
+
+    def test_onclick_link_with_selectors(self):
+        # 국내 기관 게시판에 흔한 href="#none" onclick="goView('115116','')" 구조
+        result = parse_board(self.onclick_html, "https://demo.re.kr/bbs/list.do", {
+            "id": "demo", "name": "데모",
+            "row_selector": "div.board_list > ul > li",
+            "title_selector": "a > strong",
+            "link_selector": "a",
+            "date_selector": "a ul li",
+            "detail_url_template": "https://demo.re.kr/bbs/view.do?key=abc&bbsSn={arg0}",
+        })
+        self.assertEqual(result.warnings, [])
+        self.assertEqual(len(result.items), 3)  # class="notice" 고정 공지는 제외
+        self.assertEqual(result.items[0].title, "AI 기본법 3/4분기 이행점검 결과")
+        self.assertEqual(result.items[0].posted, YESTERDAY)
+        self.assertEqual(
+            result.items[0].url,
+            "https://demo.re.kr/bbs/view.do?key=abc&bbsSn=115116",
+        )
+
+    def test_onclick_board_autodetects_rows(self):
+        # 등록일이 제목 <a> 안쪽에 있고, 푸터에도 날짜가 있는 구조
+        result = parse_board(self.onclick_html, "https://demo.re.kr/bbs/list.do",
+                             {"id": "demo", "name": "데모"})
+        self.assertEqual(len(result.items), 3)
+        self.assertNotIn("footer", result.detected["row_selector"])
+        self.assertEqual([i.posted for i in result.items],
+                         [YESTERDAY, YESTERDAY - timedelta(days=1), YESTERDAY - timedelta(days=2)])
+
+    def test_onclick_warning_names_the_function(self):
+        result = parse_board(self.onclick_html, "https://demo.re.kr/bbs/list.do",
+                             {"id": "demo", "name": "데모"})
+        self.assertTrue(any("goView" in w and "115116" in w for w in result.warnings))
+
+    def test_js_call_helpers(self):
+        anchor = parse_html("<a href=\"#none\" onclick=\"goView('115116', '');\">글</a>").select_one("a")
+        self.assertEqual(js_call_args("#none", anchor), ["115116"])
+        self.assertEqual(js_call_name(anchor), "goView")
+        plain = parse_html('<a href="/view.do?idx=1">글</a>').select_one("a")
+        self.assertEqual(js_call_args("/view.do?idx=1", plain), [])
+        self.assertEqual(js_call_name(plain), "")
+
+    def test_detail_url_template_missing_arg_is_not_fatal(self):
+        # 템플릿이 {arg1}을 참조하는데 인자가 하나뿐이면, 링크만 비우고 수집은 계속한다
+        result = parse_board(self.onclick_html, "https://demo.re.kr/bbs/list.do", {
+            "id": "demo", "name": "데모",
+            "row_selector": "div.board_list > ul > li",
+            "title_selector": "a > strong",
+            "link_selector": "a",
+            "date_selector": "a ul li",
+            "detail_url_template": "https://demo.re.kr/view.do?a={arg0}&b={arg1}",
+        })
+        self.assertEqual(len(result.items), 3)
+        self.assertEqual(result.items[0].url, "")
 
     def test_bad_row_selector_warns(self):
         result = parse_board(self.table_html, "https://demo.re.kr/list.do", {
