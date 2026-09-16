@@ -16,7 +16,10 @@ from html import escape
 
 from collector import KST, Item
 
-SEEN_RETENTION_DAYS = 200
+# 목록 한 페이지에 오래 머무는 자료가 있다. SPRi 간행물은 월간이라 12개월치가
+# 한 페이지에 떠 있어, 가장 오래된 호는 약 335일간 계속 수집된다. 보존 기간이
+# 그보다 짧으면 기록이 지워진 뒤 같은 호가 '신규'로 다시 발송된다.
+SEEN_RETENTION_DAYS = 400
 
 
 def filter_new(items: list[Item], seen: dict) -> list[Item]:
