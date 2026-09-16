@@ -588,9 +588,6 @@ def slug_from_url(url: str) -> str:
     return (parts[0] if parts else "source").replace("-", "_")
 
 
-ONCLICK_FUNC = re.compile(r"([A-Za-z_$][\w$.]{0,63})\s*\(")
-
-
 def onclick_report(html: str) -> list[tuple[str, int, list[str]]]:
     """href 대신 onclick으로 상세 페이지를 여는 앵커를 함수별로 묶어 돌려준다.
 
@@ -606,11 +603,11 @@ def onclick_report(html: str) -> list[tuple[str, int, list[str]]]:
         if href and not href.startswith(("#", "javascript:")):
             continue  # 진짜 주소가 있는 링크는 기존 경로가 처리한다
         source = (anchor.get("onclick") or "") or href
-        match = ONCLICK_FUNC.search(source)
+        func = collector.onclick_func(source)
         args = collector.onclick_args(source)
-        if not match or not args:
+        if not func or not args:
             continue
-        groups[match.group(1)].append(args)
+        groups[func].append(args)
     ranked = sorted(groups.items(), key=lambda kv: -len(kv[1]))
     return [(fn, len(calls), calls[0]) for fn, calls in ranked]
 
@@ -670,6 +667,13 @@ def add_source(url: str, *, source_id: str, name: str, category: str,
             "detail_url_template": detail_url_template,
             "link_pattern": pattern_from_template(detail_url_template),
         }
+        # 목록에는 정렬·페이지 이동 링크도 onclick으로 섞여 있다. 가장 많이 나온
+        # 함수만 상세보기로 보고 나머지는 무시한다.
+        report = onclick_report(body)
+        if report:
+            candidate["onclick_function"] = report[0][0]
+            print(f"  상세보기 함수: {report[0][0]}() {report[0][1]}개"
+                  + (f" / 무시: {', '.join(f + '()' for f, _, _ in report[1:4])}" if len(report) > 1 else ""))
         ok, message = probe(candidate, timeout, strict=not relaxed)
         print(f"  detail_url_template 적용 -> {'정상' if ok else '실패'}: {message}")
         if ok:

@@ -241,7 +241,8 @@
       "link_pattern": "posts/view/\\d+",
       "keyword_filter": false,
       "enabled": true,
-      "verified": true
+      "verified": true,
+      "exclude_pattern": "code=notice"
     },
     {
       "id": "spri_event",
@@ -266,7 +267,8 @@
       "link_pattern": "view\\.do",
       "keyword_filter": true,
       "enabled": true,
-      "verified": true
+      "verified": true,
+      "onclick_function": "goView"
     },
     {
       "id": "kisdi_periodical",
@@ -279,7 +281,8 @@
       "link_pattern": "view\\.do",
       "keyword_filter": true,
       "enabled": true,
-      "verified": true
+      "verified": true,
+      "onclick_function": "goView"
     },
     {
       "id": "msit_press",

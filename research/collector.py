@@ -302,6 +302,15 @@ _ONCLICK_TOKEN = re.compile(r"""['"]([^'"]{1,80})['"]|(?<![\w.$])(\d{1,20})(?![\
 ONCLICK_ARGS = _ONCLICK_TOKEN  # 이전 이름 유지 (findall은 튜플을 주므로 onclick_args를 쓸 것)
 
 
+ONCLICK_FUNC = re.compile(r"([A-Za-z_$][\w$.]{0,63})\s*\(")
+
+
+def onclick_func(onclick: str) -> str:
+    """onclick이 호출하는 함수 이름."""
+    match = ONCLICK_FUNC.search(onclick or "")
+    return match.group(1) if match else ""
+
+
 def onclick_args(onclick: str) -> list[str]:
     """자바스크립트 호출에서 인자를 나온 순서대로 뽑는다.
 
@@ -325,7 +334,7 @@ META_LABELS = {"날짜", "등록일", "작성일", "게시일", "조회", "조�
 _DATE_ONLY = re.compile(r"^[\d\s.\-/년월일:]+$")
 
 
-def href_from_onclick(onclick: str, template: str) -> str:
+def href_from_onclick(onclick: str, template: str, only_func: str = "") -> str:
     """국내 게시판이 흔히 쓰는 onclick 방식 링크에서 상세 주소를 만든다.
 
     <a href="#" onclick="fnView('12345')">제목</a>  +  "/view.do?id={0}"
@@ -335,6 +344,11 @@ def href_from_onclick(onclick: str, template: str) -> str:
     적지 않다. 그런 사이트는 template에 자리표시자({0}, {1}...)를 적어두면 된다.
     """
     if not onclick or not template:
+        return ""
+    if only_func and onclick_func(onclick) != only_func:
+        # 같은 목록 안에 정렬(fn_search_order_list)·페이지 이동(fn_egov_link_page)
+        # 링크가 섞여 있다. 함수를 가리지 않으면 'masterId=PUBDATE&artId=DESC' 같은
+        # 가짜 상세 주소가 자료로 둔갑한다.
         return ""
     args = onclick_args(onclick)
     if not args:
@@ -375,11 +389,12 @@ def parse_html_list(html_text: str, source: dict) -> list[Item]:
     items: list[Item] = []
     seen: set[str] = set()
     template = source.get("detail_url_template", "")
+    only_func = source.get("onclick_function", "")
     for anchor in parser.anchors:
         href = anchor["href"]
         if not href or href.startswith(("#", "javascript:", "mailto:")):
             # href가 비어 있어도 onclick에 글 번호가 있는 게시판이 있다
-            href = href_from_onclick(anchor.get("onclick", ""), template)
+            href = href_from_onclick(anchor.get("onclick", ""), template, only_func)
             if not href:
                 continue
         if regex and not regex.search(href):
