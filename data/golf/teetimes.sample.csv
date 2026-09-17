@@ -1,0 +1,15 @@
+course_name,play_date,tee_time,green_fee,source,booking_url,slots,hole_info
+남서울CC,2026-09-20,06:48,175000,sample,https://example.com/b/1,2,18홀
+남서울CC,2026-09-20,07:36,195000,sample,https://example.com/b/2,4,18홀
+레이크사이드,2026-09-20,07:12,158000,sample,https://example.com/b/3,3,18홀
+레이크사이드,2026-09-20,12:40,118000,sample,https://example.com/b/4,4,18홀
+블루원용인,2026-09-20,08:04,142000,sample,https://example.com/b/5,2,18홀
+사우스스프링스,2026-09-20,06:30,132000,sample,https://example.com/b/6,4,18홀
+사우스스프링스,2026-09-20,14:10,89000,sample,https://example.com/b/7,4,18홀
+제이드팰리스,2026-09-20,07:50,250000,sample,https://example.com/b/8,2,18홀
+골드CC,2026-09-20,06:56,168000,sample,https://example.com/b/9,3,18홀
+오크밸리,2026-09-20,08:20,205000,sample,https://example.com/b/10,4,18홀
+사우스케이프,2026-09-20,09:00,390000,sample,https://example.com/b/11,4,18홀
+남서울CC,2026-09-21,06:40,215000,sample,https://example.com/b/12,4,18홀
+레이크사이드,2026-09-21,07:20,188000,sample,https://example.com/b/13,2,18홀
+블루원용인,2026-09-21,13:30,95000,sample,https://example.com/b/14,4,18홀

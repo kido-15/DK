@@ -1,0 +1,109 @@
+{
+  "_설명": [
+    "티타임을 가져올 사이트 설정입니다. 이 파일을 sources.json 으로 복사해 쓰세요.",
+    "",
+    "  cp config/sources.example.json config/sources.json",
+    "",
+    "아래 항목들은 형식을 보여 주는 뼈대일 뿐, 셀렉터는 비어 있습니다.",
+    "사이트마다 HTML 구조가 다르고 수시로 바뀌기 때문에 셀렉터를 미리 넣어 둘 수 없습니다.",
+    "실제 값은 probe 도구로 찾습니다:",
+    "",
+    "  1. 브라우저에서 예약 사이트의 티타임 목록 화면을 연다",
+    "  2. F12 → Network 탭 → 새로고침 → 목록 데이터를 담은 요청을 찾는다",
+    "     (XHR/Fetch 중 JSON을 돌려주는 것이 있으면 그게 가장 좋다)",
+    "  3. 그 주소를 복사해서 실행:",
+    "     python3 scripts/probe_source.py '복사한주소' --id mysite --name '사이트이름'",
+    "  4. 출력된 JSON을 아래 sources 배열에 붙여 넣는다",
+    "  5. 확인: python3 golf_cli.py --test-source mysite",
+    "",
+    "URL 안에서 쓸 수 있는 치환자: {date:%Y%m%d} {date:%Y-%m-%d} {date} {page}",
+    "",
+    "지키면 좋은 것:",
+    "  - delay_seconds 를 1초 이상 두어 사이트에 부담을 주지 않는다",
+    "  - respect_robots 를 true로 유지한다",
+    "  - 로그인이 필요한 페이지는 대상으로 삼지 않는다",
+    "  - 사이트 이용약관에서 자동 수집을 금지하는지 먼저 확인한다"
+  ],
+
+  "sources": [
+    {
+      "id": "sample-html",
+      "name": "HTML 목록형 사이트 (예시 뼈대)",
+      "enabled": false,
+      "format": "html",
+      "respect_robots": true,
+      "request": {
+        "url": "https://사이트주소/teetime/list?playDate={date:%Y%m%d}&page={page}",
+        "method": "GET",
+        "headers": {
+          "Referer": "https://사이트주소/"
+        },
+        "delay_seconds": 1.5,
+        "pages": { "start": 1, "max": 3, "stop_when_empty": true }
+      },
+      "list_selector": "",
+      "fields": {
+        "course_name": { "selector": "" },
+        "tee_time": { "selector": "" },
+        "green_fee": { "selector": "" },
+        "slots": { "selector": "" },
+        "booking_url": { "selector": "a", "attr": "href", "prefix": "https://사이트주소" }
+      }
+    },
+
+    {
+      "id": "sample-json",
+      "name": "JSON API형 사이트 (예시 뼈대)",
+      "enabled": false,
+      "format": "json",
+      "respect_robots": true,
+      "request": {
+        "url": "https://사이트주소/api/teetimes?date={date:%Y-%m-%d}&page={page}",
+        "method": "GET",
+        "delay_seconds": 1.0,
+        "pages": { "start": 1, "max": 5, "stop_when_empty": true }
+      },
+      "records_path": "",
+      "fields": {
+        "course_name": { "path": "" },
+        "tee_time": { "path": "" },
+        "green_fee": { "path": "" },
+        "slots": { "path": "" },
+        "booking_url": { "path": "", "prefix": "https://사이트주소/booking/" },
+        "play_date": { "from_request": "date" }
+      }
+    },
+
+    {
+      "id": "sample-post",
+      "name": "POST 요청형 사이트 (예시 뼈대)",
+      "enabled": false,
+      "format": "json",
+      "request": {
+        "url": "https://사이트주소/api/search",
+        "method": "POST",
+        "headers": { "Content-Type": "application/json" },
+        "body": { "searchDate": "{date:%Y%m%d}", "pageNo": "{page}" },
+        "delay_seconds": 1.5,
+        "pages": { "start": 1, "max": 3, "stop_when_empty": true }
+      },
+      "records_path": "",
+      "fields": {
+        "course_name": { "path": "" },
+        "tee_time": { "path": "" },
+        "green_fee": { "path": "" }
+      }
+    }
+  ],
+
+  "_필드_설정_문법": {
+    "selector": "HTML 전용. 목록 항목 기준 상대 CSS 선택자 (예: 'td.fee')",
+    "path": "JSON 전용. 점으로 구분한 키 경로 (예: 'course.name', 'list.0.price')",
+    "attr": "선택자가 가리킨 요소의 속성값을 쓴다 (예: 'href')",
+    "regex": "뽑아낸 문자열에서 한 번 더 걸러낸다. 괄호 그룹이 있으면 그 그룹을 쓴다",
+    "prefix": "상대 주소 앞에 붙일 기본 주소",
+    "replace": "문자열 치환. 예: {\"부터\": \"\"}",
+    "const": "고정값",
+    "from_request": "요청에 쓴 값을 그대로 쓴다. 'date' 또는 'page'"
+  }
+}

@@ -1,0 +1,12 @@
+# 파이썬
+__pycache__/
+*.py[cod]
+.venv/
+venv/
+
+# 개인 설정 — 각자 사이트를 직접 설정해야 하므로 공유하지 않는다
+config/sources.json
+
+# 생성물 — scripts/fetch_golf_courses.py 로 각자 받는다
+data/golf/courses.csv
+data/golf/teetimes.csv

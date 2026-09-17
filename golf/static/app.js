@@ -1,0 +1,222 @@
+"use strict";
+
+const $ = (id) => document.getElementById(id);
+const fmtWon = (n) => (n == null || n < 0) ? "—" : n.toLocaleString("ko-KR") + "원";
+
+// 이동시간이 어떻게 계산됐는지 사용자에게 알려 준다.
+// 추정치를 실제 길찾기 결과처럼 보이게 하면 안 되므로 반드시 표시한다.
+const PROVIDER_LABEL = {
+  kakao: "카카오",
+  ors: "ORS",
+  osrm: "OSRM",
+  estimate: "추정",
+};
+
+let META = null;
+
+async function loadMeta() {
+  try {
+    const res = await fetch("/api/meta");
+    META = await res.json();
+  } catch (e) {
+    showNotice("서버에 연결하지 못했습니다.", true);
+    return;
+  }
+
+  const bits = [`골프장 DB ${META.course_count.toLocaleString("ko-KR")}곳`];
+  const enabled = (META.sources || []).length;
+  bits.push(`소스 ${enabled}개`);
+  const routing = Object.entries(META.routing || {})
+    .filter(([k]) => k !== "estimate")
+    .filter(([, v]) => v === "사용 가능")
+    .map(([k]) => PROVIDER_LABEL[k] || k);
+  bits.push(routing.length ? `길찾기: ${routing.join(", ")}` : "길찾기: 좌표 추정만");
+  $("meta-line").textContent = bits.join(" · ");
+
+  const sel = $("regions");
+  for (const r of META.regions || []) {
+    const opt = document.createElement("option");
+    opt.value = r; opt.textContent = r;
+    sel.appendChild(opt);
+  }
+
+  if (!$("date").value && META.today) $("date").value = META.today;
+
+  const problems = [];
+  if (!META.has_courses) {
+    problems.push("골프장 DB가 비어 있습니다. <code>python3 scripts/fetch_golf_courses.py</code> 를 먼저 실행하세요.");
+  }
+  if (!META.has_sources) {
+    problems.push("티타임 소스가 하나도 설정되지 않았습니다. <code>config/sources.json</code> 을 설정하거나 CSV를 지정해 실행하세요.");
+  }
+  if (problems.length) {
+    showNotice("설정이 덜 됐습니다:<ul>" + problems.map((p) => `<li>${p}</li>`).join("") + "</ul>", true);
+  }
+}
+
+function showNotice(html, isError) {
+  const el = $("notice");
+  el.innerHTML = html;
+  el.classList.toggle("error", !!isError);
+  el.classList.remove("hidden");
+}
+function hideNotice() { $("notice").classList.add("hidden"); }
+
+function renderStats(stats) {
+  const flow = [
+    ["수집", stats.fetched],
+    ["조건 필터", stats.after_basic],
+    ["거리 필터", stats.after_prefilter],
+    ["최종", stats.final],
+  ].map(([label, n]) => `<span class="step">${label} ${n}</span>`).join('<span>→</span>');
+
+  let html = `<div class="flow">${flow}`;
+  html += `<span style="margin-left:auto">길찾기 호출 ${stats.routed}회 · ${stats.elapsed_sec}초</span></div>`;
+
+  if (stats.route_providers && Object.keys(stats.route_providers).length) {
+    const ps = Object.entries(stats.route_providers)
+      .map(([k, v]) => `${PROVIDER_LABEL[k] || k} ${v}건`).join(", ");
+    html += `<h4>이동시간 계산 방식</h4><div class="names">${ps}</div>`;
+  }
+
+  if (stats.unmatched > 0) {
+    html += `<h4>골프장 DB에서 못 찾은 이름 ${stats.unmatched}건</h4>`;
+    html += `<div class="names">${(stats.unmatched_names || []).join(", ") || "-"}</div>`;
+    html += `<div class="names" style="margin-top:6px">`;
+    html += `이 이름들은 좌표를 몰라 이동시간을 계산할 수 없어 제외됐습니다. `;
+    html += `<code>data/golf/courses.csv</code> 의 해당 골프장 <code>aliases</code> 칸에 `;
+    html += `이 이름을 넣어 주면 다음 검색부터 잡힙니다.</div>`;
+  }
+
+  const errs = Object.entries(stats.source_errors || {});
+  if (errs.length) {
+    html += `<h4>소스 오류</h4><div class="names">`;
+    html += errs.map(([k, v]) => `<div><b>${k}</b>: ${escapeHtml(v)}</div>`).join("");
+    html += `</div>`;
+  }
+
+  $("stats").innerHTML = html;
+}
+
+function escapeHtml(s) {
+  return String(s).replace(/[&<>"']/g, (c) =>
+    ({ "&": "&amp;", "<": "&lt;", ">": "&gt;", '"': "&quot;", "'": "&#39;" }[c]));
+}
+
+function renderResults(data) {
+  const tbody = document.querySelector("#results tbody");
+  tbody.innerHTML = "";
+
+  for (const r of data.results) {
+    const tr = document.createElement("tr");
+
+    const name = document.createElement("td");
+    name.className = "course-name";
+    name.innerHTML = escapeHtml(r.display_name) +
+      (r.address ? `<span class="addr">${escapeHtml(r.address)}</span>` : "");
+    tr.appendChild(name);
+
+    const cells = [
+      r.play_date,
+      r.tee_time,
+      { html: fmtWon(r.green_fee), cls: "num" },
+      {
+        html: r.drive_minutes == null ? "—" :
+          `${r.drive_minutes}분 <span class="est">${PROVIDER_LABEL[r.route_provider] || r.route_provider}</span>`,
+        cls: "num",
+      },
+      { html: r.distance_km == null ? "—" : `${r.distance_km}km`, cls: "num" },
+      r.region || "—",
+      { html: `<span class="tag">${escapeHtml(r.source)}</span>` },
+    ];
+
+    for (const c of cells) {
+      const td = document.createElement("td");
+      if (typeof c === "object") {
+        td.innerHTML = c.html;
+        if (c.cls) td.className = c.cls;
+      } else {
+        td.textContent = c;
+      }
+      tr.appendChild(td);
+    }
+
+    const book = document.createElement("td");
+    if (r.booking_url) {
+      const a = document.createElement("a");
+      a.href = r.booking_url;
+      a.target = "_blank";
+      a.rel = "noopener noreferrer";
+      a.className = "book-link";
+      a.textContent = "예약하기 ↗";
+      book.appendChild(a);
+    } else {
+      book.textContent = "—";
+    }
+    tr.appendChild(book);
+
+    tbody.appendChild(tr);
+  }
+
+  $("result-count").textContent = `${data.results.length}건`;
+  $("results-section").classList.remove("hidden");
+  renderStats(data.stats);
+
+  const empty = $("empty");
+  if (data.results.length === 0) {
+    const s = data.stats;
+    let msg = "조건에 맞는 티타임이 없습니다.";
+    if (s.fetched === 0) {
+      msg += "<br>소스에서 받아온 티타임 자체가 0건입니다. 소스 설정이나 네트워크를 확인해 주세요.";
+    } else if (s.after_basic === 0) {
+      msg += "<br>가격이나 시간대 조건을 완화해 보세요.";
+    } else if (s.after_prefilter === 0) {
+      msg += "<br>이동 시간 상한을 늘려 보세요.";
+    } else {
+      msg += "<br>이동 시간 상한을 조금 늘리면 결과가 나올 수 있습니다.";
+    }
+    empty.innerHTML = msg;
+    empty.classList.remove("hidden");
+  } else {
+    empty.classList.add("hidden");
+  }
+}
+
+$("search-form").addEventListener("submit", async (e) => {
+  e.preventDefault();
+  hideNotice();
+  const btn = $("submit-btn");
+  btn.disabled = true;
+  btn.textContent = "검색 중…";
+  $("empty").classList.add("hidden");
+
+  const form = new FormData(e.target);
+  const params = new URLSearchParams();
+  for (const [k, v] of form.entries()) {
+    if (String(v).trim()) params.set(k, v);
+  }
+
+  try {
+    const res = await fetch("/api/search?" + params.toString());
+    const data = await res.json();
+    if (!res.ok || data.error) {
+      showNotice(escapeHtml(data.error || "검색에 실패했습니다."), true);
+      $("results-section").classList.add("hidden");
+    } else {
+      renderResults(data);
+    }
+  } catch (err) {
+    showNotice("검색 요청이 실패했습니다: " + escapeHtml(err.message), true);
+  } finally {
+    btn.disabled = false;
+    btn.textContent = "검색";
+  }
+});
+
+$("toggle-stats").addEventListener("click", () => {
+  const el = $("stats");
+  el.classList.toggle("hidden");
+  $("toggle-stats").textContent = el.classList.contains("hidden") ? "진단 정보 보기" : "진단 정보 숨기기";
+});
+
+loadMeta();

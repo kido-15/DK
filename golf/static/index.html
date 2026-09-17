@@ -1,0 +1,117 @@
+<!DOCTYPE html>
+<html lang="ko">
+<head>
+<meta charset="utf-8">
+<meta name="viewport" content="width=device-width, initial-scale=1">
+<title>골프장 티타임 검색</title>
+<link rel="icon" href="data:image/svg+xml,%3Csvg xmlns=%27http://www.w3.org/2000/svg%27 viewBox=%270 0 100 100%27%3E%3Ctext y=%27.9em%27 font-size=%2790%27%3E%E2%9B%B3%3C/text%3E%3C/svg%3E">
+<link rel="stylesheet" href="/style.css">
+</head>
+<body>
+<header class="top">
+  <h1>⛳ 골프장 티타임 검색</h1>
+  <p class="sub">출발 위치 · 이동 희망 시간 · 가격을 넣으면 조건에 맞는 예약 가능한 티타임을 찾습니다.</p>
+</header>
+
+<main>
+  <form id="search-form" class="panel">
+    <div class="grid">
+      <label class="field wide">
+        <span>📍 출발 위치</span>
+        <input type="text" id="origin" name="origin" placeholder="예: 서울시 강남구 테헤란로 152 또는 37.4979,127.0276" required>
+        <small>주소·지하철역·건물명 모두 됩니다. 정확히 찾으려면 좌표를 직접 넣으세요.</small>
+      </label>
+
+      <label class="field">
+        <span>📅 플레이 날짜</span>
+        <input type="date" id="date" name="date">
+        <small>비우면 소스가 주는 전체 날짜</small>
+      </label>
+
+      <label class="field">
+        <span>🕗 티오프 시작</span>
+        <input type="time" id="tee_from" name="tee_from" value="06:00">
+      </label>
+
+      <label class="field">
+        <span>🕛 티오프 종료</span>
+        <input type="time" id="tee_to" name="tee_to" value="10:00">
+      </label>
+
+      <label class="field">
+        <span>🚗 이동 시간 상한 (분)</span>
+        <input type="number" id="max_drive" name="max_drive" min="5" max="400" step="5" value="90">
+        <small>편도 기준</small>
+      </label>
+
+      <label class="field">
+        <span>💰 그린피 상한 (원)</span>
+        <input type="number" id="max_price" name="max_price" min="0" step="10000" value="200000">
+        <small>1인 기준</small>
+      </label>
+
+      <label class="field">
+        <span>↕️ 정렬</span>
+        <select id="sort" name="sort">
+          <option value="score">추천순 (가격+거리+시간)</option>
+          <option value="price">가격 낮은순</option>
+          <option value="drive">가까운순</option>
+          <option value="tee_time">티오프 빠른순</option>
+        </select>
+      </label>
+
+      <label class="field">
+        <span>🗺️ 지역 (선택)</span>
+        <select id="regions" name="regions">
+          <option value="">전체</option>
+        </select>
+      </label>
+    </div>
+
+    <div class="actions">
+      <button type="submit" id="submit-btn">검색</button>
+      <span id="meta-line" class="meta-line"></span>
+    </div>
+  </form>
+
+  <div id="notice" class="notice hidden"></div>
+
+  <section id="results-section" class="hidden">
+    <div class="results-head">
+      <h2>검색 결과 <span id="result-count"></span></h2>
+      <button type="button" id="toggle-stats" class="linkish">진단 정보 보기</button>
+    </div>
+
+    <div id="stats" class="stats hidden"></div>
+
+    <div class="table-wrap">
+      <table id="results">
+        <thead>
+          <tr>
+            <th>골프장</th>
+            <th>날짜</th>
+            <th>티오프</th>
+            <th class="num">그린피</th>
+            <th class="num">이동</th>
+            <th class="num">거리</th>
+            <th>지역</th>
+            <th>소스</th>
+            <th>예약</th>
+          </tr>
+        </thead>
+        <tbody></tbody>
+      </table>
+    </div>
+  </section>
+
+  <div id="empty" class="empty hidden"></div>
+</main>
+
+<footer>
+  <p>이동 시간은 길찾기 API 또는 직선거리 추정으로 계산됩니다. 계산 방식은 결과의 이동 시간 칸에 표시됩니다.</p>
+  <p>그린피와 잔여 좌석은 각 예약 사이트에서 가져온 값이며, 실제 예약 화면과 다를 수 있습니다. 결제 전 반드시 원 사이트에서 확인하세요.</p>
+</footer>
+
+<script src="/app.js"></script>
+</body>
+</html>
