@@ -348,6 +348,18 @@
       "keyword_filter": false,
       "enabled": true,
       "verified": true
+    },
+    {
+      "id": "pacst",
+      "name": "국가과학기술자문회의 주간동향",
+      "category": "정부·부처",
+      "type": "html",
+      "url": "https://www.pacst.go.kr/jsp/board/boardList.jsp?board_id=6",
+      "base_url": "https://www.pacst.go.kr",
+      "link_pattern": "boardView\\.jsp",
+      "keyword_filter": false,
+      "enabled": true,
+      "verified": true
     }
   ]
 }

@@ -340,6 +340,33 @@ _TITLE_BADGE = re.compile(
 )
 
 
+# 제목 뒤에 등록일이 그대로 따라붙는 목록이 많다. 링크 텍스트와 옆 칸 텍스트가
+# 한 덩어리로 읽히기 때문이다.
+#   "288 주요기관 정책ㆍ연구 주간동향 (26.9.11) 2026-09-11"
+#   "AI 기술주권과 국가경쟁력 제고 방안 연구 저자 이경선 외 발행일 2025-12-31"
+_TRAILING_META = re.compile(
+    r"\s*(?:저자|발행일|등록일|작성일|게시일|작성자|조회수?|첨부)?\s*[:：]?\s*"
+    r"[^\s]*\s*(?:20\d{2}|\d{2})\s*[.\-/년]\s*\d{1,2}\s*[.\-/월]\s*\d{1,2}\s*일?\.?\s*$"
+)
+
+
+def strip_trailing_date(title: str, published: str) -> str:
+    """제목 끝에 붙은 '등록일 2026-09-11' 류를 떼어낸다.
+
+    떼어낸 결과가 실제 등록일과 같을 때만 자른다. 제목 자체가 날짜로 끝나는
+    자료("...2026년 시행계획 2026-01-01" 같은 경우)를 잘못 자르지 않기 위함이다.
+    """
+    if not published:
+        return title
+    trimmed = _TRAILING_META.sub("", title).strip()
+    if not trimmed or len(trimmed) < 6:
+        return title          # 다 잘려나가면 원본을 둔다
+    removed = title[len(trimmed):]
+    if parse_date(removed) != published:
+        return title          # 등록일과 다른 날짜면 제목의 일부다
+    return trimmed
+
+
 def clean_title(title: str) -> str:
     """제목 앞뒤에 붙은 접근성 라벨·배지를 떼어낸다."""
     title = _TITLE_LABEL.sub("", title or "")
@@ -437,6 +464,7 @@ def parse_html_list(html_text: str, source: dict) -> list[Item]:
 
         context = " ".join(parser.chunks[start : start + lookahead])
         published = parse_date(title) or parse_date(context)
+        title = strip_trailing_date(title, published)
         items.append(
             Item(
                 source_id=source["id"],

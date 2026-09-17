@@ -119,7 +119,11 @@ def send_email(items: list[Item], errors: list[str], gmail_addr: str,
     msg = MIMEMultipart("alternative")
     msg["Subject"] = subject_prefix + build_subject(items)
     msg["From"] = gmail_addr
-    msg["To"] = ", ".join(to_addrs)
+    # 수신자가 여럿이면 숨은참조로 보낸다. To에 전원을 넣으면 받는 사람끼리
+    # 서로의 주소를 보게 되는데, 기관 메일과 개인 메일이 섞여 있어 곤란하다.
+    # Bcc 헤더는 메시지에 넣지 않는다(넣으면 그대로 노출된다). 실제 배달은
+    # sendmail의 수신자 목록으로 이뤄지므로 헤더 없이도 전원에게 간다.
+    msg["To"] = to_addrs[0] if len(to_addrs) == 1 else gmail_addr
     msg.attach(MIMEText(build_text(items, errors), "plain", "utf-8"))
     msg.attach(MIMEText(build_html(items, errors), "html", "utf-8"))
 
