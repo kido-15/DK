@@ -29,6 +29,9 @@ class TeeTimeSource(Protocol):
 
 
 from .csv_source import CsvSource          # noqa: E402,F401
+from .site_crawler import SiteCrawler       # noqa: E402,F401
+from .snapshot_source import SnapshotSource  # noqa: E402,F401
 from .web_source import WebSource, load_sources   # noqa: E402,F401
 
-__all__ = ["TeeTimeSource", "CsvSource", "WebSource", "load_sources"]
+__all__ = ["TeeTimeSource", "CsvSource", "WebSource", "SiteCrawler",
+           "SnapshotSource", "load_sources"]

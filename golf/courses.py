@@ -33,6 +33,7 @@ FIELDNAMES = [
     "address",
     "holes",
     "phone",
+    "homepage",
     "source",
     "aliases",
 ]

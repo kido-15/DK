@@ -53,6 +53,19 @@ python3 scripts/setup_sites.py
 브라우저에서 목록 주소를 복사해 붙여 넣기만 하면 됩니다.
 자세한 절차는 아래 [예약 사이트 연결하기](#️-예약-사이트-연결하기-엑스골프--카카오골프예약--골팡)를 보세요.
 
+### 4단계 — 골프장 홈페이지 직접 수집 (선택)
+
+플랫폼을 거치지 않고 골프장 공식 홈페이지에서 직접 읽어 옵니다.
+
+```bash
+python3 scripts/manage_homepages.py --status
+python3 scripts/crawl_all.py --limit 20
+python3 golf_web.py --snapshot
+```
+
+아래 [골프장 홈페이지 직접 수집](#-골프장-홈페이지-직접-수집)을 보세요.
+**상당수 골프장이 로그인을 요구**하므로 플랫폼 수집과 병행하는 편이 좋습니다.
+
 ---
 
 ## 🖥️ 사용법
@@ -191,6 +204,121 @@ python3 golf_cli.py --from 37.4979,127.0276 --teetimes 내파일.csv
 
 ---
 
+## 🏌️ 골프장 홈페이지 직접 수집
+
+플랫폼(엑스골프 등)을 거치지 않고 **골프장 공식 홈페이지에서 직접** 티타임을 읽어 옵니다.
+골프장마다 셀렉터를 적어 줄 수 없으므로, 페이지를 보고 **스스로 판단**합니다.
+
+```
+홈페이지 → 예약 링크 찾기 → 예약 화면 열기 → 티타임 자동 추출 → 성공 경로 기억
+```
+
+### 실행
+
+```bash
+python3 scripts/manage_homepages.py --status     # 1. 홈페이지 주소가 얼마나 채워졌나
+python3 scripts/crawl_all.py --limit 20          # 2. 20곳만 시험 수집
+python3 scripts/crawl_all.py --days 7            # 3. 전체를 7일치 수집
+python3 golf_web.py --snapshot                   # 4. 수집 결과로 검색
+```
+
+수백 곳을 도는 작업이라 시간이 걸립니다. **처음에는 반드시 `--limit 20` 으로 시험**하세요.
+
+| 명령 | 설명 |
+|---|---|
+| `crawl_all.py --report` | 수집하지 않고 현황만 (어디가 되고 어디가 막히는지) |
+| `crawl_all.py --region 경기,충북` | 지역 한정 |
+| `crawl_all.py --date 2026-10-15` | 특정 날짜만 |
+| `crawl_all.py --retry-failed` | 실패했던 곳도 다시 |
+| `crawl_all.py --workers 6` | 동시 처리 수 (기본 6, 너무 높이지 마세요) |
+
+### ⚠️ 한계 — 미리 아셔야 합니다
+
+**개별 골프장 홈페이지는 상당수가 회원 로그인 후에만 티타임을 보여 줍니다.**
+이 프로그램은 로그인 벽을 만나면 기록만 남기고 넘어갑니다. 로그인 세션을 흉내 내는 것은
+약관 위반 소지가 크기 때문에 하지 않습니다.
+
+수집이 안 되는 대표적인 경우:
+
+| 상태 | 뜻 | 대응 |
+|---|---|---|
+| **로그인 필요** | 회원만 티타임 조회 가능 | 플랫폼(`setup_sites.py`)으로 보세요 |
+| **자바스크립트 화면** | 목록이 브라우저에서 그려짐 | 예약 API 주소를 찾아 `homepage` 에 직접 넣으면 됩니다 |
+| **예약 링크 못 찾음** | 홈페이지에서 예약 메뉴를 못 찾음 | 예약 페이지 주소를 `homepage` 에 직접 넣으세요 |
+| **홈페이지 주소 없음** | `courses.csv` 의 `homepage` 가 빔 | 아래 참고 |
+
+그래서 **플랫폼 수집과 병행하는 것이 가장 실용적입니다.**
+
+```bash
+python3 golf_web.py --with-snapshot    # 플랫폼 + 홈페이지 수집 결과를 함께
+```
+
+### 홈페이지 주소 채우기
+
+수집의 출발점입니다. OpenStreetMap에 `website` 태그가 있는 곳은 자동으로 채워지지만,
+없는 곳이 많습니다.
+
+```bash
+python3 scripts/manage_homepages.py --status               # 얼마나 비었나
+python3 scripts/manage_homepages.py --export 채울목록.csv    # 엑셀로 내보내기
+# 엑셀에서 homepage 칸을 채운 뒤
+python3 scripts/manage_homepages.py --import 채울목록.csv
+```
+
+한 곳씩 넣거나, 자동으로 찾을 수도 있습니다.
+
+```bash
+python3 scripts/manage_homepages.py --set "남서울CC=https://www.namseoulcc.co.kr"
+python3 scripts/manage_homepages.py --search      # 네이버 검색 API (키 필요)
+python3 scripts/manage_homepages.py --check       # 주소가 살아 있는지 확인
+```
+
+> 자동 검색은 틀릴 수 있습니다. `--check` 로 확인하고 `--clear-dead` 로 죽은 주소를 정리하세요.
+
+### 같은 예약 솔루션 묶어 보기
+
+골프장들은 자체 개발 대신 소수의 예약 솔루션을 공유해 씁니다.
+**한 곳이 풀리면 같은 솔루션을 쓰는 나머지도 같이 풀립니다.**
+
+```bash
+python3 scripts/crawl_all.py --report
+```
+
+```
+같은 예약 솔루션을 쓰는 골프장 묶음
+  script:booking.vendor.co.kr                    37곳
+      가나CC, 다라CC, 마바CC ...
+```
+
+어떤 솔루션이 많이 쓰이는지는 미리 정해 두지 않고 **수집하면서 자동으로 파악**됩니다.
+
+### 특가 변동 추적
+
+수집할 때마다 결과가 `data/golf/snapshots/` 에 날짜별로 쌓이고, 직전 수집과 비교됩니다.
+
+```
+이전 수집(2026-09-16.json) 대비 변동
+■ 가격이 내려간 티타임 3건
+   가나CC 2026-09-20 06:30  180,000원 → 150,000원 (-30,000원)
+■ 새로 올라온 티타임 12건
+```
+
+매일 자동으로 돌리려면 `crontab -e` 에 추가하세요.
+
+```
+0 7,12,19 * * * cd ~/golf-DK && /usr/bin/python3 scripts/crawl_all.py --days 7 >> crawl.log 2>&1
+```
+
+### 수집할 때 지키는 것
+
+- 사이트당 요청 간격 **1.5초**(기본), 동시 처리 6곳
+- `robots.txt` 준수
+- 로그인이 필요한 페이지는 건드리지 않음
+- 한 번 성공한 경로를 기억해 **불필요한 재탐색을 하지 않음**
+- 로그인 벽으로 확인된 곳은 다시 두드리지 않음
+
+---
+
 ## 🚗 이동 시간 계산
 
 제공자를 순서대로 시도하고, 실패하면 다음으로 넘어갑니다. 마지막 `estimate`는 네트워크 없이 항상 성공하므로 **검색이 멈추는 일은 없습니다.**
@@ -240,6 +368,9 @@ golf_cli.py                     터미널 검색
 
 golf/
   models.py                     Course, TeeTime, SearchQuery + 가격·시간 파싱
+  extract.py                    설정 없이 티타임을 뽑아내는 자동 추출 엔진
+  profiles.py                   골프장별 크롤링 프로필 학습, 예약 솔루션 묶기
+  snapshot.py                   일별 수집 결과 저장과 특가 변동 비교
   geo.py                        거리 계산, 지오코딩
   routing.py                    이동 시간 (kakao/ors/osrm/estimate)
   courses.py                    골프장 DB, 이름 매칭
@@ -248,17 +379,22 @@ golf/
   server.py                     대시보드 서버
   static/                       화면 (HTML/CSS/JS)
   sources/
-    web_source.py               설정 기반 범용 크롤러
+    web_source.py               설정 기반 범용 크롤러 (플랫폼용)
+    site_crawler.py             골프장 홈페이지 직접 수집
+    snapshot_source.py          저장된 수집 결과 읽기
     csv_source.py               CSV 소스
 
 scripts/
   setup_sites.py                예약 사이트 연결 마법사 (엑스골프/카카오/골팡)
+  crawl_all.py                  전체 골프장 홈페이지 병렬 수집
+  manage_homepages.py           골프장 홈페이지 주소 채우기
   fetch_golf_courses.py         OSM에서 골프장 좌표 수집
   probe_source.py               사이트 구조 분석 → 설정 초안 생성
 
 config/sources.example.json     소스 설정 서식
 data/golf/*.sample.csv          데모용 샘플 (가짜 데이터)
-tests/fake_site.py              크롤러 검증용 가짜 사이트
+tests/fake_site.py              플랫폼 크롤러 검증용 가짜 사이트
+tests/fake_courses.py           골프장 홈페이지 검증용 가짜 사이트 6곳
 ```
 
 ### 검색이 도는 순서

@@ -169,6 +169,8 @@ def element_to_course(el: dict) -> Course | None:
         address=address,
         holes=holes,
         phone=(tags.get("phone") or tags.get("contact:phone") or "").strip(),
+        homepage=(tags.get("website") or tags.get("contact:website")
+                  or tags.get("url") or "").strip(),
         source="osm",
         aliases=aliases,
     )
@@ -245,6 +247,9 @@ def main() -> int:
                 for a in oc.aliases:
                     if a not in match.aliases:
                         match.aliases.append(a)
+            # 직접 찾아 넣은 홈페이지 주소도 보존한다 (OSM에 없는 경우가 많다)
+            if match and oc.homepage and not match.homepage:
+                match.homepage = oc.homepage
             # OSM에 없는 수동 등록 골프장은 그대로 남긴다
             if normalize_course_name(oc.name) not in new_keys and oc.source != "osm":
                 book.add(oc)

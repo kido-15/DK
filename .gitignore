@@ -10,3 +10,9 @@ config/sources.json
 # 생성물 — scripts/fetch_golf_courses.py 로 각자 받는다
 data/golf/courses.csv
 data/golf/teetimes.csv
+
+# 수집 결과와 학습된 프로필 — 각자 실행하며 쌓인다
+data/golf/snapshots/
+data/golf/site_profiles.json
+data/golf/probe-*.txt
+crawl.log

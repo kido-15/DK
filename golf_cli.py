@@ -20,7 +20,7 @@ from golf.geo import Geocoder
 from golf.models import SearchQuery, parse_date, parse_time
 from golf.routing import Router
 from golf.search import GolfSearch
-from golf.sources import CsvSource
+from golf.sources import CsvSource, SnapshotSource
 from golf.sources.web_source import DEFAULT_CONFIG_PATH as SOURCES_DEFAULT
 from golf.sources.web_source import load_sources
 
@@ -104,12 +104,22 @@ def cmd_search(args) -> int:
         print("  python3 scripts/fetch_golf_courses.py")
         return 1
 
-    sources = list(load_sources(args.sources or SOURCES_DEFAULT))
+    sources = []
+    if args.snapshot:
+        # 개별 골프장 홈페이지에서 모아 둔 결과만 본다
+        sources.append(SnapshotSource(args.snapshot_path))
+    else:
+        sources.extend(load_sources(args.sources or SOURCES_DEFAULT))
+        if args.with_snapshot:
+            sources.append(SnapshotSource(args.snapshot_path))
     if args.teetimes:
         sources.append(CsvSource(args.teetimes))
     if not sources:
         print("사용 가능한 소스가 없습니다.")
-        print("  config/sources.json 을 설정하거나 --teetimes 로 CSV를 넘기세요.")
+        print("  아래 중 하나를 하세요:")
+        print("    python3 scripts/setup_sites.py     (엑스골프/카카오/골팡 연결)")
+        print("    python3 scripts/crawl_all.py       (골프장 홈페이지 직접 수집)")
+        print("    --teetimes 로 CSV 지정")
         return 1
 
     geocoder = Geocoder(kakao_key=os.environ.get("KAKAO_REST_API_KEY", ""))
@@ -202,6 +212,11 @@ def main() -> int:
     ap.add_argument("--courses", help="골프장 CSV 경로")
     ap.add_argument("--sources", help="소스 설정 JSON 경로")
     ap.add_argument("--teetimes", help="티타임 CSV를 소스로 추가")
+    ap.add_argument("--snapshot", action="store_true",
+                    help="골프장 홈페이지에서 모아 둔 결과로 검색 (crawl_all.py 실행 필요)")
+    ap.add_argument("--with-snapshot", action="store_true",
+                    help="플랫폼 소스에 더해 수집 결과도 함께 본다")
+    ap.add_argument("--snapshot-path", help="스냅샷 파일 경로 (기본: 최신)")
     ap.add_argument("--save", help="검색 결과를 CSV로 저장할 경로")
     ap.add_argument("--list-sources", action="store_true", help="설정된 소스 목록 보기")
     ap.add_argument("--test-source", help="소스 하나를 시험 호출해 본다")

@@ -27,7 +27,7 @@ from .geo import Geocoder
 from .models import SearchQuery, parse_date, parse_time
 from .routing import Router
 from .search import GolfSearch
-from .sources import CsvSource, load_sources
+from .sources import CsvSource, SnapshotSource, load_sources
 
 STATIC_DIR = os.path.join(os.path.dirname(os.path.abspath(__file__)), "static")
 
@@ -193,12 +193,19 @@ def make_state(
     sources_path: Optional[str] = None,
     csv_teetimes: Optional[str] = None,
     routing_providers: Optional[list[str]] = None,
+    use_snapshot: bool = False,
+    snapshot_path: Optional[str] = None,
+    snapshot_only: bool = False,
 ) -> AppState:
     from .courses import DEFAULT_PATH as COURSES_DEFAULT
     from .sources.web_source import DEFAULT_CONFIG_PATH as SOURCES_DEFAULT
 
     book = CourseBook.load(courses_path or COURSES_DEFAULT)
-    sources = list(load_sources(sources_path or SOURCES_DEFAULT))
+    sources = []
+    if not snapshot_only:
+        sources.extend(load_sources(sources_path or SOURCES_DEFAULT))
+    if use_snapshot or snapshot_only:
+        sources.append(SnapshotSource(snapshot_path))
     if csv_teetimes:
         sources.append(CsvSource(csv_teetimes, source_id="csv", name="CSV 파일"))
 

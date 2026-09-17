@@ -29,6 +29,7 @@ class Course:
     address: str = ""       # 전체 주소
     holes: Optional[int] = None   # 홀 수 (18, 27, 36 ...)
     phone: str = ""
+    homepage: str = ""      # 공식 홈페이지 (개별 사이트 직접 수집에 쓴다)
     source: str = ""        # 이 레코드의 출처 (예: "osm", "manual")
     aliases: list[str] = field(default_factory=list)  # 예약 사이트별 표기 차이 흡수
 
@@ -49,6 +50,7 @@ class Course:
             address=str(d.get("address") or "").strip(),
             holes=int(d["holes"]) if str(d.get("holes") or "").strip().isdigit() else None,
             phone=str(d.get("phone") or "").strip(),
+            homepage=str(d.get("homepage") or "").strip(),
             source=str(d.get("source") or "").strip(),
             aliases=list(aliases),
         )

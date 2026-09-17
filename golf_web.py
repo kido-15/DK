@@ -22,6 +22,11 @@ def main() -> int:
     ap.add_argument("--courses", help="골프장 CSV 경로")
     ap.add_argument("--sources", help="소스 설정 JSON 경로")
     ap.add_argument("--teetimes", help="티타임 CSV를 소스로 추가")
+    ap.add_argument("--snapshot", action="store_true",
+                    help="골프장 홈페이지 수집 결과만으로 검색")
+    ap.add_argument("--with-snapshot", action="store_true",
+                    help="플랫폼 소스에 더해 수집 결과도 함께 본다")
+    ap.add_argument("--snapshot-path", help="스냅샷 파일 경로 (기본: 최신)")
     ap.add_argument("--routing", default="",
                     help="길찾기 제공자 순서. 예: kakao,osrm,estimate")
     args = ap.parse_args()
@@ -33,6 +38,9 @@ def main() -> int:
             sources_path=args.sources,
             csv_teetimes=args.teetimes,
             routing_providers=providers,
+            use_snapshot=args.with_snapshot,
+            snapshot_only=args.snapshot,
+            snapshot_path=args.snapshot_path,
         )
     except ValueError as exc:
         print(f"설정 오류: {exc}", file=sys.stderr)
