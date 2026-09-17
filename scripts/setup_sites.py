@@ -25,7 +25,7 @@ sys.path.insert(0, os.path.dirname(os.path.dirname(os.path.abspath(__file__))))
 from golf.courses import DEFAULT_PATH as COURSES_DEFAULT       # noqa: E402
 from golf.courses import CourseBook                            # noqa: E402
 from golf.sources.browser_source import (BrowserSource, find_chromium,   # noqa: E402
-                                         playwright_available)
+                                         has_session, playwright_available)
 from golf.sources.web_source import DEFAULT_CONFIG_PATH        # noqa: E402
 from golf.sources.web_source import HttpClient, WebSource      # noqa: E402
 
@@ -265,6 +265,9 @@ def setup_one(key: str, cfg: dict, config_path: str) -> bool:
 
     source["enabled"] = True
     source["respect_robots"] = True
+    # 로그인해 둔 사이트라면, 수집할 때도 그 로그인 상태를 쓰도록 표시한다
+    if has_session(key):
+        source["use_session"] = True
     if headers:
         source["request"]["headers"] = headers
 
@@ -316,6 +319,17 @@ def try_browser(key: str, site: dict, url: str, headers: dict) -> dict | None:
             print(f"      ... 외 {len(result.tee_times) - 5}건")
     else:
         print(f"  ✗ {result.reason}")
+        # 로그인해야 보이는 화면이면, 로그인해 두고 다시 오면 된다
+        if "로그인" in result.reason:
+            if has_session(key):
+                print("\n  로그인 세션이 저장돼 있는데도 로그인 화면이 나옵니다.")
+                print("  세션이 만료됐을 수 있습니다. 다시 로그인해 보세요:")
+            else:
+                print("\n  이 사이트는 로그인해야 티타임이 보입니다.")
+                print("  브라우저 창에서 직접 로그인해 두면 그 상태로 수집할 수 있습니다:")
+            print(f"    python3 scripts/login.py {key}")
+            print("  로그인한 뒤 이 명령을 다시 실행하세요:")
+            print(f"    python3 scripts/setup_sites.py {key}")
         return None
 
     if result.from_api and result.apis:

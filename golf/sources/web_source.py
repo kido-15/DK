@@ -260,7 +260,19 @@ class WebSource:
         self.format = (config.get("format") or "html").lower()
         self.request_cfg = config.get("request") or {}
         self.respect_robots = bool(config.get("respect_robots", True))
-        self.client = HttpClient(headers=self.request_cfg.get("headers"))
+
+        headers = dict(self.request_cfg.get("headers") or {})
+        # 로그인이 필요한 사이트라면 저장해 둔 쿠키를 함께 보낸다.
+        # scripts/login.py 로 직접 로그인해 두었을 때만 값이 있다.
+        self.uses_session = bool(config.get("use_session"))
+        self.has_cookie = False
+        if self.uses_session:
+            from .browser_source import cookie_header
+            cookie = cookie_header(self.id, self.request_cfg.get("url", ""))
+            if cookie:
+                headers.setdefault("Cookie", cookie)
+                self.has_cookie = True
+        self.client = HttpClient(headers=headers)
         self.last_error: str = ""
         self.last_stats: dict[str, Any] = {}
         self._robots: dict[str, urllib.robotparser.RobotFileParser] = {}
@@ -323,6 +335,14 @@ class WebSource:
             self.last_error = (
                 "request.url 이 비어 있습니다. "
                 "python3 scripts/setup_sites.py 로 이 사이트를 연결하세요."
+            )
+            self.last_stats = {"requests": 0, "rows": 0, "errors": [self.last_error]}
+            return []
+
+        if self.uses_session and not self.has_cookie:
+            self.last_error = (
+                "로그인이 필요한 사이트인데 저장된 로그인 세션이 없습니다. "
+                f"python3 scripts/login.py {self.id} 를 실행하세요."
             )
             self.last_stats = {"requests": 0, "rows": 0, "errors": [self.last_error]}
             return []

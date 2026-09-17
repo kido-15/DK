@@ -45,6 +45,15 @@ python3 scripts/fetch_golf_courses.py --reverse-geocode
 
 ### 3단계 — 예약 사이트 연결
 
+엑스골프와 카카오골프예약은 **로그인해야 티타임이 보입니다.** 먼저 로그인하세요.
+
+```bash
+python3 scripts/login.py
+```
+
+브라우저 창에서 직접 로그인하시면 됩니다 (아이디·비밀번호는 저장되지 않습니다).
+그다음 연결합니다.
+
 ```bash
 python3 scripts/setup_sites.py
 ```
@@ -139,9 +148,11 @@ python3 scripts/setup_sites.py --status   # 현재 상태 확인
 
 **개발자도구(F12)를 열 필요 없습니다.**
 
-1. 브라우저에서 해당 사이트의 **티타임 목록 화면**을 엽니다 (로그인 없이 보이는 화면)
+1. 브라우저에서 해당 사이트의 **티타임 목록 화면**을 엽니다
 2. **주소창의 주소를 복사**합니다
 3. 마법사에 붙여 넣습니다
+
+로그인해야 보이는 화면이라면 [먼저 로그인](#-로그인이-필요한-사이트-엑스골프--카카오골프예약)해 두면 됩니다.
 
 주소에 박힌 날짜(`20260920`)와 페이지 번호는 **마법사가 치환자로 자동 변환**합니다.
 그래야 매번 원하는 날짜로 조회됩니다.
@@ -178,6 +189,57 @@ pip3 install playwright
 python3 -m playwright install chromium
 ```
 
+### 🔐 로그인이 필요한 사이트 (엑스골프 · 카카오골프예약)
+
+이 두 곳은 **로그인해야 티타임이 보입니다.** 그래서 먼저 로그인해 두어야 합니다.
+
+```bash
+python3 scripts/login.py xgolf
+```
+
+브라우저 창이 열리면 **직접 로그인**하시고, 터미널로 돌아와 Enter를 누르면 됩니다.
+그 로그인 상태가 저장되어 이후 수집에 쓰입니다.
+
+```bash
+python3 scripts/login.py            # 세 곳을 순서대로
+python3 scripts/login.py --status   # 어디에 로그인돼 있는지
+python3 scripts/login.py --clear xgolf
+```
+
+로그인한 뒤 연결하면, 마법사가 알아서 그 로그인 상태를 쓰도록 설정합니다.
+
+```bash
+python3 scripts/login.py xgolf        # 1. 로그인
+python3 scripts/setup_sites.py xgolf  # 2. 연결
+```
+
+#### 무엇이 저장되나요
+
+| 저장됨 | 저장 안 됨 |
+|---|---|
+| 브라우저 쿠키, 브라우저 프로필 | **아이디, 비밀번호** |
+
+아이디와 비밀번호는 이 프로그램이 **보지도, 저장하지도 않습니다.** 직접 입력하신 내용은
+브라우저와 해당 사이트 사이에서만 오갑니다. 이 프로그램은 로그인을 대신하지 않고,
+**kd님이 직접 로그인한 결과를 이어서 쓸 뿐**입니다.
+
+#### ⚠️ 로그인 기능을 쓸 때 주의할 점
+
+- 저장 폴더(`data/golf/sessions/`)에는 **로그인된 상태**가 들어 있습니다.
+  가져간 사람이 그대로 로그인되므로 **남과 공유하지 마세요.** (git에서도 제외돼 있습니다)
+- 세션은 시간이 지나면 만료됩니다. 수집이 안 되면 다시 로그인하세요.
+- **본인 계정으로, 본인이 볼 수 있는 화면만** 읽습니다.
+- 각 사이트 이용약관에서 자동 수집을 금지한다면 사용하지 마세요.
+  **과도하게 요청하면 계정이 제한될 수 있습니다.** 요청 간격을 넉넉히 두세요.
+
+#### 로그인 후에도 안 될 때
+
+```bash
+python3 scripts/login.py --status        # 세션이 살아 있는지
+python3 scripts/login.py --clear xgolf   # 지우고
+python3 scripts/login.py xgolf           # 다시 로그인
+```
+
 ### 설정한 뒤 확인
 
 ```bash
@@ -190,7 +252,8 @@ python3 golf_cli.py --test-source golfpang --date 2026-10-15
 
 - `delay_seconds` 를 **1초 이상** 두세요 (기본 1.5초). 짧으면 사이트에 부담을 주고 차단당합니다
 - `respect_robots` 는 `true` 로 두세요. robots.txt가 막은 주소는 자동으로 건너뜁니다
-- **로그인이 필요한 페이지는 대상으로 삼지 마세요.** 로그인 세션을 흉내 내는 것은 약관 위반 소지가 큽니다
+- 로그인이 필요한 사이트는 **직접 로그인해 두고** 그 세션을 쓰세요 (위 참고).
+  아이디·비밀번호를 프로그램에 넣어 자동 로그인하는 방식은 지원하지 않습니다
 - 각 사이트 이용약관에서 자동 수집을 금지하는지 먼저 확인하세요. 금지된 사이트라면 연결하지 마세요
 
 ### 크롤링이 막히는 사이트라면
@@ -439,6 +502,7 @@ golf/
     csv_source.py               CSV 소스
 
 scripts/
+  login.py                      예약 사이트 로그인 (직접 로그인한 세션을 저장)
   setup_sites.py                예약 사이트 연결 마법사 (엑스골프/카카오/골팡)
   crawl_all.py                  전체 골프장 홈페이지 병렬 수집
   manage_homepages.py           골프장 홈페이지 주소 채우기
@@ -447,9 +511,11 @@ scripts/
 
 config/sources.example.json     소스 설정 서식
 data/golf/*.sample.csv          데모용 샘플 (가짜 데이터)
+data/golf/sessions/             로그인 세션 (git 제외, 공유 금지)
 tests/fake_site.py              플랫폼 크롤러 검증용 가짜 사이트
 tests/fake_courses.py           골프장 홈페이지 검증용 가짜 사이트 6곳
 tests/fake_spa.py               자바스크립트 렌더링 검증용 가짜 플랫폼
+tests/fake_login_site.py        로그인 필요 사이트 검증용 가짜 플랫폼
 ```
 
 ### 검색이 도는 순서

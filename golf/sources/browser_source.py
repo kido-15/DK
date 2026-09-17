@@ -23,6 +23,7 @@ import glob
 import json
 import os
 import re
+import urllib.parse
 from dataclasses import dataclass, field
 from datetime import date
 from typing import Any, Optional
@@ -37,6 +38,94 @@ _SKIP_URL = re.compile(
     r"sentry|wcs\.naver|/log|/track|/beacon|\.(png|jpg|jpeg|gif|svg|webp|woff2?|css|ico)(\?|$))",
     re.IGNORECASE,
 )
+
+# 로그인 세션(쿠키)을 담아 두는 곳. 사이트마다 폴더를 따로 쓴다.
+# 여기에는 쿠키와 브라우저 프로필만 들어가며, 아이디나 비밀번호는 저장하지 않는다.
+SESSION_ROOT = os.path.join(
+    os.path.dirname(os.path.dirname(os.path.dirname(os.path.abspath(__file__)))),
+    "data", "golf", "sessions",
+)
+
+
+def session_dir(site_id: str) -> str:
+    """사이트별 로그인 세션 폴더 경로."""
+    safe = re.sub(r"[^\w.-]", "_", site_id or "default")
+    return os.path.join(SESSION_ROOT, safe)
+
+
+def has_session(site_id: str) -> bool:
+    d = session_dir(site_id)
+    return os.path.isdir(d) and bool(os.listdir(d))
+
+
+def cookie_file(site_id: str) -> str:
+    """브라우저 없이 쓸 수 있도록 꺼내 둔 쿠키 파일."""
+    return os.path.join(session_dir(site_id), "cookies.json")
+
+
+def save_cookies(site_id: str, cookies: list) -> str:
+    """로그인 쿠키를 파일로 남긴다.
+
+    목록 API 를 찾은 뒤에는 브라우저 없이 일반 요청으로 부르는 편이 훨씬 빠른데,
+    로그인이 필요한 사이트라면 그 요청에도 쿠키가 있어야 한다.
+    """
+    d = session_dir(site_id)
+    os.makedirs(d, exist_ok=True)
+    path = cookie_file(site_id)
+    keep = [{"name": c.get("name"), "value": c.get("value"),
+             "domain": c.get("domain", ""), "path": c.get("path", "/")}
+            for c in cookies if c.get("name")]
+    tmp = path + ".tmp"
+    with open(tmp, "w", encoding="utf-8") as f:
+        json.dump({"cookies": keep}, f, ensure_ascii=False)
+    os.replace(tmp, path)
+    try:
+        os.chmod(path, 0o600)      # 로그인 상태가 담기므로 본인만 읽게
+    except OSError:
+        pass
+    return path
+
+
+def cookie_header(site_id: str, url: str = "") -> str:
+    """저장해 둔 쿠키를 'a=1; b=2' 형태로. 없으면 빈 문자열.
+
+    url 을 주면 그 도메인에 해당하는 쿠키만 고른다.
+    """
+    path = cookie_file(site_id)
+    if not os.path.exists(path):
+        return ""
+    try:
+        with open(path, encoding="utf-8") as f:
+            data = json.load(f)
+    except (json.JSONDecodeError, OSError):
+        return ""
+
+    host = ""
+    if url:
+        try:
+            host = urllib.parse.urlsplit(url).netloc.lower().split(":")[0]
+        except ValueError:
+            host = ""
+
+    parts = []
+    for c in data.get("cookies") or []:
+        domain = (c.get("domain") or "").lstrip(".").lower()
+        if host and domain and not (host == domain or host.endswith("." + domain)):
+            continue
+        if c.get("name") and c.get("value") is not None:
+            parts.append(f"{c['name']}={c['value']}")
+    return "; ".join(parts)
+
+
+def clear_session(site_id: str) -> bool:
+    """저장된 로그인 세션을 지운다."""
+    import shutil
+    d = session_dir(site_id)
+    if os.path.isdir(d):
+        shutil.rmtree(d, ignore_errors=True)
+        return True
+    return False
+
 
 INSTALL_HINT = (
     "브라우저 모드에는 Playwright 가 필요합니다. 아래를 실행하세요:\n"
@@ -83,6 +172,67 @@ def playwright_available() -> bool:
         return True
     except ImportError:
         return False
+
+
+CONTEXT_OPTIONS = {
+    "locale": "ko-KR",
+    "viewport": {"width": 1400, "height": 1000},
+    "user_agent": ("Mozilla/5.0 (Macintosh; Intel Mac OS X 10_15_7) "
+                   "AppleWebKit/537.36 (KHTML, like Gecko) "
+                   "Chrome/122.0.0.0 Safari/537.36"),
+}
+
+
+def open_context(p, *, site_id: str = "", headless: bool = True,
+                 executable_path: str = "", use_session: bool = True):
+    """브라우저를 연다. 저장된 로그인 세션이 있으면 그대로 이어서 쓴다.
+
+    (browser, context) 를 돌려준다. 세션을 쓰는 경우 browser 는 None 이다
+    (persistent context 는 브라우저 객체를 따로 주지 않는다).
+    """
+    exe = executable_path or ""
+
+    def _with_fallback(fn, args: dict):
+        """설치된 크로미움 경로가 어긋나면 찾아서 다시 시도한다."""
+        try:
+            return fn(**args)
+        except Exception:
+            found = find_chromium()
+            if not found or args.get("executable_path") == found:
+                raise
+            args["executable_path"] = found
+            return fn(**args)
+
+    if use_session and site_id:
+        d = session_dir(site_id)
+        os.makedirs(d, exist_ok=True)
+        try:
+            os.chmod(d, 0o700)      # 로그인 쿠키가 들어가므로 본인만 읽게
+        except OSError:
+            pass
+        args = {"user_data_dir": d, "headless": headless, **CONTEXT_OPTIONS}
+        if exe:
+            args["executable_path"] = exe
+        context = _with_fallback(p.chromium.launch_persistent_context, args)
+        return None, context
+
+    args = {"headless": headless}
+    if exe:
+        args["executable_path"] = exe
+    browser = _with_fallback(p.chromium.launch, args)
+    return browser, browser.new_context(**CONTEXT_OPTIONS)
+
+
+def close_context(browser, context) -> None:
+    try:
+        context.close()
+    except Exception:
+        pass
+    if browser is not None:
+        try:
+            browser.close()
+        except Exception:
+            pass
 
 
 @dataclass
@@ -177,6 +327,7 @@ class BrowserSource:
         headless: bool = True,
         timeout_ms: int = 30000,
         executable_path: str = "",
+        use_session: bool = True,
     ):
         self.url_template = url_template
         self.id = source_id
@@ -188,6 +339,8 @@ class BrowserSource:
         self.headless = headless
         self.timeout_ms = timeout_ms
         self.executable_path = executable_path or os.environ.get("GOLF_CHROMIUM_PATH", "")
+        # 저장된 로그인 세션이 있으면 쓴다. 없으면 평소처럼 익명으로 연다.
+        self.use_session = use_session
         self.last_error = ""
         self.last_stats: dict[str, Any] = {}
         self.last_result: Optional[BrowserResult] = None
@@ -217,26 +370,11 @@ class BrowserSource:
 
         try:
             with sync_playwright() as p:
-                launch_args = {"headless": self.headless}
-                if self.executable_path:
-                    launch_args["executable_path"] = self.executable_path
-                try:
-                    browser = p.chromium.launch(**launch_args)
-                except Exception:
-                    # 기본 경로에 없으면 실제로 설치된 실행 파일을 찾아 다시 시도한다
-                    found = find_chromium()
-                    if not found:
-                        raise
-                    launch_args["executable_path"] = found
-                    browser = p.chromium.launch(**launch_args)
-                context = browser.new_context(
-                    locale="ko-KR",
-                    viewport={"width": 1400, "height": 1000},
-                    user_agent=("Mozilla/5.0 (Macintosh; Intel Mac OS X 10_15_7) "
-                                "AppleWebKit/537.36 (KHTML, like Gecko) "
-                                "Chrome/122.0.0.0 Safari/537.36"),
-                )
-                page = context.new_page()
+                browser, context = open_context(
+                    p, site_id=self.id, headless=self.headless,
+                    executable_path=self.executable_path,
+                    use_session=self.use_session)
+                page = context.pages[0] if context.pages else context.new_page()
 
                 def on_response(resp):
                     try:
@@ -264,7 +402,12 @@ class BrowserSource:
 
                 result.page_title = page.title()
                 html = page.content()
-                browser.close()
+                if self.use_session and self.id:
+                    try:
+                        save_cookies(self.id, context.cookies())
+                    except Exception:
+                        pass       # 쿠키를 못 꺼내도 수집 자체는 계속한다
+                close_context(browser, context)
         except Exception as exc:
             result.reason = f"브라우저 실행 실패: {exc}"
             return result
