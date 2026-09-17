@@ -63,6 +63,57 @@ class TestMultiCourseListing(unittest.TestCase):
         self.assertEqual(extract_course_name(block), "레이크사이드CC")
 
 
+class TestProbeRejectsNonTeeTimeTables(unittest.TestCase):
+    """예약 사이트에는 티타임 말고도 표가 많다. 아무 표나 목록으로 잡으면
+    저장은 되는데 수집은 0건이 되어, 원인을 찾기 어려워진다."""
+
+    @classmethod
+    def setUpClass(cls):
+        import importlib.util
+        path = os.path.join(os.path.dirname(os.path.dirname(os.path.abspath(__file__))),
+                            "scripts", "probe_source.py")
+        spec = importlib.util.spec_from_file_location("probe_source", path)
+        cls.probe = importlib.util.module_from_spec(spec)
+        spec.loader.exec_module(cls.probe)
+
+    def _silent(self, fn, *a, **kw):
+        import contextlib, io
+        with contextlib.redirect_stdout(io.StringIO()):
+            return fn(*a, **kw)
+
+    def test_membership_table_is_rejected(self):
+        """엑스골프에서 실제로 잘못 잡혔던 회원등급 안내표."""
+        html = """<table><tbody>
+          <tr><th>구분</th><th>다이아몬드 회원</th><th>무료회원</th></tr>
+          <tr><th>연회비</th><td>330,000원</td><td>없음</td></tr>
+          <tr><th>부킹 우선권</th><td>있음</td><td>없음</td></tr>
+          <tr><th>할인율</th><td>최대 30%</td><td>없음</td></tr>
+          <tr><th>포인트</th><td>5%</td><td>1%</td></tr>
+        </tbody></table>"""
+        cfg = self._silent(self.probe.analyze_html, html, "x", "X", "https://x.com/")
+        self.assertFalse(cfg, "시각이 없는 표를 목록으로 제안하면 안 된다")
+
+    def test_notice_list_is_rejected(self):
+        html = """<table><tbody>
+          <tr><td>2026-09-01</td><td>추석 운영 안내</td><td>152</td></tr>
+          <tr><td>2026-08-20</td><td>그린 보수 공지</td><td>87</td></tr>
+          <tr><td>2026-08-01</td><td>회원권 안내</td><td>203</td></tr>
+        </tbody></table>"""
+        self.assertFalse(self._silent(self.probe.analyze_html, html, "x", "X",
+                                      "https://x.com/"))
+
+    def test_real_teetime_table_is_accepted(self):
+        html = """<table><tbody>
+          <tr><td>남서울CC</td><td>06:30</td><td>168,000원</td><td>2자리</td></tr>
+          <tr><td>레이크사이드</td><td>11:20</td><td>132,000원</td><td>4자리</td></tr>
+          <tr><td>블루원용인</td><td>13:40</td><td>98,000원</td><td>3자리</td></tr>
+        </tbody></table>"""
+        cfg = self._silent(self.probe.analyze_html, html, "x", "X", "https://x.com/")
+        self.assertTrue(cfg)
+        self.assertIn("tee_time", cfg["fields"])
+        self.assertIn("green_fee", cfg["fields"])
+
+
 class TestCapturedApiConfig(unittest.TestCase):
     """브라우저가 가로챈 API 를 설정으로 남길 때, 그 설정만으로 수집이 돼야 한다."""
 

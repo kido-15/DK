@@ -30,6 +30,7 @@ from collections import Counter, defaultdict
 sys.path.insert(0, os.path.dirname(os.path.dirname(os.path.abspath(__file__))))
 
 from golf import htmlsel                                    # noqa: E402
+from golf.extract import block_score as extract_block_score  # noqa: E402
 from golf.sources.web_source import HttpClient              # noqa: E402
 
 # 값의 성격을 알아보는 패턴들
@@ -69,25 +70,23 @@ def find_repeating_blocks(root: htmlsel.Node, min_count: int = 3) -> list[tuple[
         texts = [n.text for n in nodes]
         if sum(1 for t in texts if len(t) > 4) < min_count:
             continue
-        candidates.append((sig, nodes))
+        # 0점은 시각이 없다는 뜻이다. 티타임 목록이 아니므로 후보에서 뺀다.
+        score = _block_score(nodes)
+        if score <= 0:
+            continue
+        candidates.append((score, sig, nodes))
 
-    candidates.sort(key=lambda sn: _block_score(sn[1]), reverse=True)
-    return candidates
+    candidates.sort(key=lambda c: c[0], reverse=True)
+    return [(sig, nodes) for _, sig, nodes in candidates]
 
 
 def _block_score(nodes: list) -> float:
-    """티타임 목록다운 정도를 점수로. 시간·가격이 같이 있으면 높다."""
-    sample = nodes[: min(8, len(nodes))]
-    has_time = sum(1 for n in sample if TIME_RE.search(n.text))
-    has_price = sum(1 for n in sample if PRICE_RE.search(n.text))
-    has_course = sum(1 for n in sample if COURSE_HINT.search(n.text))
-    ratio = len(sample) or 1
-    return (
-        (has_time / ratio) * 3.0
-        + (has_price / ratio) * 3.0
-        + (has_course / ratio) * 1.5
-        + min(len(nodes), 50) / 100.0
-    )
+    """티타임 목록다운 정도를 점수로.
+
+    판정은 golf/extract.py 의 것을 그대로 쓴다. 거기서는 시각이 없으면 0점이라,
+    회원등급 안내표처럼 시각 없는 표를 티타임 목록으로 잘못 고르지 않는다.
+    """
+    return extract_block_score(nodes)
 
 
 def selector_for(node: htmlsel.Node, root: htmlsel.Node) -> str:

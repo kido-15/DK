@@ -227,45 +227,73 @@ def setup_one(key: str, cfg: dict, config_path: str,
                 val = d.strftime(fmt)
             probe_url = probe_url.replace(token, val)
 
-    text = None
-    try:
-        text = client.get(probe_url)
-        print(f"  ✓ {len(text):,}자 수신")
-    except Exception as exc:
-        print(f"  · 일반 요청 실패: {exc}")
-
     source = None
-    if text:
-        fmt = "json" if text.lstrip().startswith(("{", "[")) else "html"
-        print(f"  ✓ 형식: {fmt}")
-        print("\n  구조를 분석합니다...")
-        source = (probe.analyze_json(text, key, site["name"], url) if fmt == "json"
-                  else probe.analyze_html(text, key, site["name"], url))
+    text = None
 
-    # 일반 요청으로 안 되면 브라우저를 띄워 직접 열어 본다.
-    # 플랫폼 예약 사이트는 대부분 목록을 자바스크립트로 그리기 때문이다.
-    if not source:
-        print("\n  일반 요청으로는 목록을 찾지 못했습니다.")
-        print("  브라우저를 띄워 화면을 직접 열고, 오가는 데이터를 살펴보겠습니다.")
+    # 브라우저를 직접 지정했다면 그것부터 쓴다. 일반 요청이 무언가를 받아 왔다는
+    # 이유로 건너뛰면, 로그인해 둔 브라우저에 붙으라고 지정한 뜻이 무시된다.
+    if cdp_url or browser_name:
+        print("\n  지정하신 브라우저로 화면을 엽니다.")
         source = try_browser(key, site, url, headers,
                              browser_name=browser_name, cdp_url=cdp_url)
-        if not source and text:
+
+    if source is None:
+        try:
+            text = client.get(probe_url)
+            print(f"  ✓ {len(text):,}자 수신")
+        except Exception as exc:
+            print(f"  · 일반 요청 실패: {exc}")
+
+        if text:
+            fmt = "json" if text.lstrip().startswith(("{", "[")) else "html"
+            print(f"  ✓ 형식: {fmt}")
+            print("\n  구조를 분석합니다...")
+            source = (probe.analyze_json(text, key, site["name"], url) if fmt == "json"
+                      else probe.analyze_html(text, key, site["name"], url))
+
+        # 시각이 없으면 티타임 목록이 아니다. 회원등급 안내표 같은 다른 표를
+        # 잡아 놓고 목록이라고 우기면, 저장해 봐야 0건만 나온다.
+        if source and not (source.get("fields") or {}).get("tee_time"):
+            print("\n  찾은 표에 시각이 없습니다. 티타임 목록이 아닌 것 같습니다.")
+            source = None
+
+        # 일반 요청으로 안 되면 브라우저를 띄워 직접 열어 본다.
+        # 플랫폼 예약 사이트는 대부분 목록을 자바스크립트로 그리기 때문이다.
+        if not source:
+            print("\n  일반 요청으로는 목록을 찾지 못했습니다.")
+            print("  브라우저를 띄워 화면을 직접 열고, 오가는 데이터를 살펴보겠습니다.")
+            source = try_browser(key, site, url, headers,
+                                 browser_name=browser_name, cdp_url=cdp_url)
+
+    if not source:
+        if text:
             dump = os.path.join("data", "golf", f"probe-{key}.txt")
             os.makedirs(os.path.dirname(dump), exist_ok=True)
             with open(dump, "w", encoding="utf-8") as f:
                 f.write(text)
             print(f"\n  받은 응답을 저장했습니다: {dump}")
-        if not source:
-            return False
+        return False
 
     # 필수 필드 점검
     fields = source.get("fields") or {}
-    missing = ([] if source.get("format") == "browser"
-               else [k for k in ("course_name", "tee_time", "green_fee") if k not in fields])
-    if missing:
-        print(f"\n  [주의] 자동으로 찾지 못한 필드: {', '.join(missing)}")
-        print("  위 출력의 '첫 항목 텍스트' 를 보고 직접 넣어야 할 수 있습니다.")
-        print(f"  설정 파일({config_path})에서 나중에 고칠 수 있습니다.")
+    if source.get("format") != "browser":
+        # 시각이 없으면 티타임 목록이 아니다. 저장해도 0건만 나온다.
+        if "tee_time" not in fields:
+            print("\n  ✗ 시각 칸을 찾지 못했습니다. 티타임 목록이 아닌 것 같습니다.")
+            print("  저장해도 0건만 나오므로 저장하지 않습니다.")
+            print("\n  확인해 볼 것:")
+            print("    - 그 주소가 실제로 티타임이 나열되는 화면인가요?")
+            print("      (회원안내·이용약관 같은 페이지를 넣으면 이렇게 됩니다)")
+            print("    - 로그인해야 보이는 화면이라면 로그인한 브라우저에 붙이세요:")
+            print(f"        open -a \"브라우저이름\" --args --remote-debugging-port=9222")
+            print(f"        python3 scripts/setup_sites.py {key} --connect http://localhost:9222")
+            return False
+
+        missing = [k for k in ("course_name", "green_fee") if k not in fields]
+        if missing:
+            print(f"\n  [주의] 자동으로 찾지 못한 필드: {', '.join(missing)}")
+            print("  위 출력의 '첫 항목 텍스트' 를 보고 직접 넣어야 할 수 있습니다.")
+            print(f"  설정 파일({config_path})에서 나중에 고칠 수 있습니다.")
 
     source["enabled"] = True
     source["respect_robots"] = True
