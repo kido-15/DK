@@ -23,6 +23,7 @@ import glob
 import json
 import os
 import re
+import sys
 import urllib.parse
 from dataclasses import dataclass, field
 from datetime import date
@@ -134,6 +135,142 @@ INSTALL_HINT = (
 )
 
 
+# ---------------------------------------------------------------------------
+# 어떤 브라우저를 쓸지 고르기
+#
+# Playwright 가 제어할 수 있는 것은 크로미움 계열, 파이어폭스, 웹킷뿐이다.
+# 크로미움 계열이라면 평소 쓰는 브라우저를 그대로 지정할 수 있다.
+# ---------------------------------------------------------------------------
+
+# 앱 이름으로 찾아볼 후보들. 여기에 없는 브라우저도 경로를 직접 주면 된다.
+MAC_APP_DIRS = ["/Applications", os.path.expanduser("~/Applications")]
+LINUX_BIN_NAMES = [
+    "google-chrome", "google-chrome-stable", "chromium", "chromium-browser",
+    "microsoft-edge", "brave-browser", "vivaldi", "opera",
+]
+WIN_CANDIDATES = [
+    r"C:\Program Files\Google\Chrome\Application\chrome.exe",
+    r"C:\Program Files (x86)\Google\Chrome\Application\chrome.exe",
+    r"C:\Program Files (x86)\Microsoft\Edge\Application\msedge.exe",
+    r"C:\Program Files\BraveSoftware\Brave-Browser\Application\brave.exe",
+]
+
+
+def _mac_app_executable(app_path: str) -> str:
+    """맥 앱 번들에서 실행 파일 경로를 꺼낸다."""
+    macos_dir = os.path.join(app_path, "Contents", "MacOS")
+    if not os.path.isdir(macos_dir):
+        return ""
+
+    # Info.plist 에 적힌 실행 파일 이름을 먼저 본다 (앱 이름과 다를 수 있다)
+    plist = os.path.join(app_path, "Contents", "Info.plist")
+    if os.path.exists(plist):
+        try:
+            import plistlib
+            with open(plist, "rb") as f:
+                name = (plistlib.load(f) or {}).get("CFBundleExecutable", "")
+            cand = os.path.join(macos_dir, name) if name else ""
+            if cand and os.path.exists(cand):
+                return cand
+        except Exception:
+            pass
+
+    entries = [os.path.join(macos_dir, n) for n in os.listdir(macos_dir)]
+    files = [e for e in entries if os.path.isfile(e) and os.access(e, os.X_OK)]
+    return files[0] if files else ""
+
+
+def _is_chromium_bundle(app_path: str) -> bool:
+    """맥 앱이 크로미움 기반인지 짐작한다.
+
+    크로미움 기반 앱은 'XXX Framework.framework' 를 함께 담고 있다.
+    확실한 판별은 아니지만, 실행해 보기 전에 거르는 데는 쓸 만하다.
+    """
+    fw = os.path.join(app_path, "Contents", "Frameworks")
+    if not os.path.isdir(fw):
+        return False
+    try:
+        return any(n.endswith("Framework.framework") for n in os.listdir(fw))
+    except OSError:
+        return False
+
+
+def discover_browsers() -> list[dict]:
+    """이 컴퓨터에 설치된 브라우저를 찾는다.
+
+    [{"name": "Arc", "path": "...", "chromium": True}, ...] 형태로 돌려준다.
+    chromium 이 False 인 것은 Playwright 로 제어되지 않을 가능성이 크다.
+    """
+    found: list[dict] = []
+    seen: set[str] = set()
+
+    def add(name: str, path: str, chromium: bool):
+        if not path or path in seen or not os.path.exists(path):
+            return
+        seen.add(path)
+        found.append({"name": name, "path": path, "chromium": chromium})
+
+    if sys.platform == "darwin":
+        for d in MAC_APP_DIRS:
+            if not os.path.isdir(d):
+                continue
+            try:
+                entries = sorted(os.listdir(d))
+            except OSError:
+                continue
+            for entry in entries:
+                if not entry.endswith(".app"):
+                    continue
+                app = os.path.join(d, entry)
+                exe = _mac_app_executable(app)
+                if not exe:
+                    continue
+                chromium = _is_chromium_bundle(app)
+                # 브라우저로 보이는 앱만 목록에 올린다
+                low = entry.lower()
+                looks_browser = chromium or any(
+                    k in low for k in ("browser", "chrome", "chromium", "edge",
+                                       "brave", "arc", "safari", "firefox",
+                                       "vivaldi", "opera", "whale", "aside"))
+                if looks_browser:
+                    add(entry[:-4], exe, chromium)
+    elif sys.platform.startswith("win"):
+        for path in WIN_CANDIDATES:
+            add(os.path.basename(path), path, True)
+    else:
+        import shutil as _shutil
+        for name in LINUX_BIN_NAMES:
+            add(name, _shutil.which(name) or "", True)
+
+    # Playwright 가 내려받아 둔 크로미움도 후보에 넣는다
+    bundled = find_chromium()
+    if bundled:
+        add("Playwright 내장 크로미움", bundled, True)
+    return found
+
+
+def resolve_browser(name_or_path: str) -> str:
+    """브라우저 이름이나 경로를 실행 파일 경로로 바꾼다. 못 찾으면 빈 문자열."""
+    if not name_or_path:
+        return ""
+
+    # 경로를 직접 준 경우
+    if os.path.exists(name_or_path):
+        if name_or_path.endswith(".app"):
+            return _mac_app_executable(name_or_path)
+        return name_or_path
+
+    want = name_or_path.strip().lower()
+    browsers = discover_browsers()
+    for b in browsers:                      # 이름이 정확히 같은 것 먼저
+        if b["name"].lower() == want:
+            return b["path"]
+    for b in browsers:                      # 그다음 부분 일치
+        if want in b["name"].lower():
+            return b["path"]
+    return ""
+
+
 def find_chromium() -> str:
     """설치된 크로미움 실행 파일을 찾는다.
 
@@ -184,13 +321,27 @@ CONTEXT_OPTIONS = {
 
 
 def open_context(p, *, site_id: str = "", headless: bool = True,
-                 executable_path: str = "", use_session: bool = True):
+                 executable_path: str = "", use_session: bool = True,
+                 cdp_url: str = ""):
     """브라우저를 연다. 저장된 로그인 세션이 있으면 그대로 이어서 쓴다.
+
+    cdp_url 을 주면 새로 띄우지 않고 **이미 열려 있는 브라우저에 붙는다.**
+    평소 쓰는 브라우저를 원격 디버깅 포트와 함께 켜 두었다면, 거기 로그인된
+    상태를 그대로 쓸 수 있다.
 
     (browser, context) 를 돌려준다. 세션을 쓰는 경우 browser 는 None 이다
     (persistent context 는 브라우저 객체를 따로 주지 않는다).
     """
-    exe = executable_path or ""
+    exe = executable_path or os.environ.get("GOLF_BROWSER_PATH", "")
+    cdp_url = cdp_url or os.environ.get("GOLF_BROWSER_CDP", "")
+
+    if cdp_url:
+        # 이미 떠 있는 브라우저에 붙는다. 그 브라우저의 쿠키와 로그인 상태를
+        # 그대로 쓰므로, 따로 로그인할 필요가 없다.
+        browser = p.chromium.connect_over_cdp(cdp_url)
+        context = browser.contexts[0] if browser.contexts else browser.new_context(
+            **CONTEXT_OPTIONS)
+        return browser, context
 
     def _with_fallback(fn, args: dict):
         """설치된 크로미움 경로가 어긋나면 찾아서 다시 시도한다."""
@@ -223,7 +374,25 @@ def open_context(p, *, site_id: str = "", headless: bool = True,
     return browser, browser.new_context(**CONTEXT_OPTIONS)
 
 
-def close_context(browser, context) -> None:
+def close_context(browser, context, *, attached: bool = False, page=None) -> None:
+    """열었던 것을 정리한다.
+
+    attached 는 이미 떠 있던 브라우저에 붙은 경우다. 그 브라우저는 사용자의
+    것이므로 닫지 않는다. 우리가 연 탭만 닫고 연결을 끊는다.
+    """
+    if attached:
+        if page is not None:
+            try:
+                page.close()
+            except Exception:
+                pass
+        if browser is not None:
+            try:
+                browser.close()      # CDP 연결만 끊는다. 브라우저는 계속 떠 있다
+            except Exception:
+                pass
+        return
+
     try:
         context.close()
     except Exception:
@@ -328,6 +497,8 @@ class BrowserSource:
         timeout_ms: int = 30000,
         executable_path: str = "",
         use_session: bool = True,
+        browser: str = "",
+        cdp_url: str = "",
     ):
         self.url_template = url_template
         self.id = source_id
@@ -338,7 +509,15 @@ class BrowserSource:
         self.click_more = click_more
         self.headless = headless
         self.timeout_ms = timeout_ms
-        self.executable_path = executable_path or os.environ.get("GOLF_CHROMIUM_PATH", "")
+        # 쓸 브라우저를 정한다. 이름(예: "Arc")을 주면 설치된 것을 찾아 쓴다.
+        self.executable_path = (
+            executable_path
+            or (resolve_browser(browser) if browser else "")
+            or os.environ.get("GOLF_BROWSER_PATH", "")
+            or os.environ.get("GOLF_CHROMIUM_PATH", "")
+        )
+        # 이미 열려 있는 브라우저에 붙을 주소 (예: http://localhost:9222)
+        self.cdp_url = cdp_url or os.environ.get("GOLF_BROWSER_CDP", "")
         # 저장된 로그인 세션이 있으면 쓴다. 없으면 평소처럼 익명으로 연다.
         self.use_session = use_session
         self.last_error = ""
@@ -373,8 +552,13 @@ class BrowserSource:
                 browser, context = open_context(
                     p, site_id=self.id, headless=self.headless,
                     executable_path=self.executable_path,
-                    use_session=self.use_session)
-                page = context.pages[0] if context.pages else context.new_page()
+                    use_session=self.use_session and not self.cdp_url,
+                    cdp_url=self.cdp_url)
+                # 붙은 브라우저라면 사용자가 보던 탭을 건드리지 않도록 새 탭을 연다
+                if self.cdp_url:
+                    page = context.new_page()
+                else:
+                    page = context.pages[0] if context.pages else context.new_page()
 
                 def on_response(resp):
                     try:
@@ -407,7 +591,8 @@ class BrowserSource:
                         save_cookies(self.id, context.cookies())
                     except Exception:
                         pass       # 쿠키를 못 꺼내도 수집 자체는 계속한다
-                close_context(browser, context)
+                close_context(browser, context,
+                              attached=bool(self.cdp_url), page=page)
         except Exception as exc:
             result.reason = f"브라우저 실행 실패: {exc}"
             return result

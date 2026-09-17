@@ -25,7 +25,8 @@ sys.path.insert(0, os.path.dirname(os.path.dirname(os.path.abspath(__file__))))
 from golf.courses import DEFAULT_PATH as COURSES_DEFAULT       # noqa: E402
 from golf.courses import CourseBook                            # noqa: E402
 from golf.sources.browser_source import (BrowserSource, find_chromium,   # noqa: E402
-                                         has_session, playwright_available)
+                                         has_session, playwright_available,
+                                         resolve_browser)
 from golf.sources.web_source import DEFAULT_CONFIG_PATH        # noqa: E402
 from golf.sources.web_source import HttpClient, WebSource      # noqa: E402
 
@@ -77,8 +78,9 @@ SITES = {
 COMMON_NOTES = [
     "개발자도구(F12)를 열 필요 없습니다. 주소창의 주소면 충분합니다.",
     "목록이 자바스크립트로 그려지는 화면이면 브라우저를 띄워 자동으로 처리합니다.",
-    "로그인해야만 목록이 보이는 화면은 다루지 않습니다.",
-    "  (로그인 세션을 흉내 내는 것은 약관 위반 소지가 큽니다)",
+    "로그인해야 보이는 화면이라면 먼저 로그인해 두세요:",
+    "  python3 scripts/login.py <사이트>",
+    "  또는 이미 열어 둔 브라우저에 붙이기: --connect http://localhost:9222",
 ]
 
 
@@ -170,7 +172,8 @@ def upsert_source(cfg: dict, source: dict) -> str:
 # ---------------------------------------------------------------------------
 
 
-def setup_one(key: str, cfg: dict, config_path: str) -> bool:
+def setup_one(key: str, cfg: dict, config_path: str,
+              browser_name: str = "", cdp_url: str = "") -> bool:
     site = SITES[key]
     print("\n" + "=" * 68)
     print(f"  {site['name']} 연결")
@@ -244,7 +247,8 @@ def setup_one(key: str, cfg: dict, config_path: str) -> bool:
     if not source:
         print("\n  일반 요청으로는 목록을 찾지 못했습니다.")
         print("  브라우저를 띄워 화면을 직접 열고, 오가는 데이터를 살펴보겠습니다.")
-        source = try_browser(key, site, url, headers)
+        source = try_browser(key, site, url, headers,
+                             browser_name=browser_name, cdp_url=cdp_url)
         if not source and text:
             dump = os.path.join("data", "golf", f"probe-{key}.txt")
             os.makedirs(os.path.dirname(dump), exist_ok=True)
@@ -285,7 +289,8 @@ def setup_one(key: str, cfg: dict, config_path: str) -> bool:
     return True
 
 
-def try_browser(key: str, site: dict, url: str, headers: dict) -> dict | None:
+def try_browser(key: str, site: dict, url: str, headers: dict,
+                browser_name: str = "", cdp_url: str = "") -> dict | None:
     """브라우저로 페이지를 열어 목록 API를 찾아낸다.
 
     개발자도구에서 XHR을 뒤지는 일을 대신한다. 찾아낸 API 주소는 설정으로
@@ -299,14 +304,27 @@ def try_browser(key: str, site: dict, url: str, headers: dict) -> dict | None:
         print(f"    python3 scripts/setup_sites.py {key}")
         return None
 
-    if not ask_yn("\n  브라우저를 띄워 볼까요? (20~30초 걸립니다)", True):
-        return None
+    if cdp_url:
+        print(f"\n  이미 열려 있는 브라우저에 붙습니다: {cdp_url}")
+        show = True
+    else:
+        if not ask_yn("\n  브라우저를 띄워 볼까요? (20~30초 걸립니다)", True):
+            return None
+        show = ask_yn("  브라우저 창을 눈으로 보시겠습니까? (안 보이게 하려면 n)", False)
 
-    show = ask_yn("  브라우저 창을 눈으로 보시겠습니까? (안 보이게 하려면 n)", False)
+    exe = ""
+    if browser_name and not cdp_url:
+        exe = resolve_browser(browser_name)
+        if not exe:
+            print(f"  '{browser_name}' 브라우저를 찾지 못했습니다.")
+            print("  설치된 목록: python3 scripts/login.py --list-browsers")
+            return None
+        print(f"  사용할 브라우저: {exe}")
 
     d = date.today() + timedelta(days=7)
     src = BrowserSource(url, source_id=key, name=site["name"],
-                        headless=not show, wait_ms=4000, scrolls=3)
+                        headless=not show, wait_ms=4000, scrolls=3,
+                        executable_path=exe, cdp_url=cdp_url)
     print("  여는 중...")
     result = src.open_and_capture(d)
 
@@ -440,6 +458,11 @@ def main() -> int:
                     help="설정할 사이트. 비우면 전부")
     ap.add_argument("--config", default=DEFAULT_CONFIG_PATH, help="설정 파일 경로")
     ap.add_argument("--status", action="store_true", help="현재 설정 상태만 보기")
+    ap.add_argument("--browser", default="",
+                    help="쓸 브라우저 이름이나 경로 (예: Chrome)")
+    ap.add_argument("--connect", default="",
+                    help="이미 열어 둔 브라우저에 붙기 (예: http://localhost:9222). "
+                         "안내: python3 scripts/login.py --help-connect")
     args = ap.parse_args()
 
     if args.status:
@@ -465,7 +488,8 @@ def main() -> int:
     done = []
     for key in targets:
         try:
-            if setup_one(key, cfg, args.config):
+            if setup_one(key, cfg, args.config,
+                         browser_name=args.browser, cdp_url=args.connect):
                 done.append(SITES[key]["name"])
         except SystemExit:
             raise

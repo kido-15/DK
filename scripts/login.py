@@ -34,8 +34,9 @@ sys.path.insert(0, os.path.dirname(os.path.dirname(os.path.abspath(__file__))))
 
 from golf.extract import detect_login_wall                      # noqa: E402
 from golf.sources.browser_source import (INSTALL_HINT, clear_session,  # noqa: E402
-                                         close_context, has_session,
-                                         open_context, playwright_available,
+                                         close_context, discover_browsers,
+                                         has_session, open_context,
+                                         playwright_available, resolve_browser,
                                          save_cookies, session_dir)
 
 SITES = {
@@ -55,6 +56,80 @@ SITES = {
         "note": "로그인 없이도 목록이 보이면 건너뛰어도 됩니다.",
     },
 }
+
+
+def cmd_list_browsers() -> int:
+    """이 컴퓨터에 설치된 브라우저를 보여 준다."""
+    browsers = discover_browsers()
+    if not browsers:
+        print("설치된 브라우저를 찾지 못했습니다.")
+        print("경로를 직접 지정할 수 있습니다:")
+        print("  python3 scripts/login.py xgolf --browser '/Applications/이름.app'")
+        return 1
+
+    print("이 컴퓨터에서 찾은 브라우저\n")
+    print(f"  {'이름':28s} {'제어 가능':10s} 경로")
+    print("  " + "-" * 76)
+    for b in browsers:
+        mark = "가능" if b["chromium"] else "어려움"
+        print(f"  {b['name'][:28]:28s} {mark:10s} {b['path'][:44]}")
+
+    print("\n  Playwright 는 크로미움 계열만 제어할 수 있습니다.")
+    print("  '어려움' 으로 표시된 것도 크로미움 기반이면 동작할 수 있으니 시도해 보세요.")
+    print("\n  쓰고 싶은 브라우저를 이름으로 지정하세요:")
+    print("    python3 scripts/login.py xgolf --browser Chrome")
+    print("\n  이미 열어 둔 브라우저를 그대로 쓰려면 아래 '붙기' 방식을 보세요:")
+    print("    python3 scripts/login.py --help-connect")
+    return 0
+
+
+def cmd_help_connect() -> int:
+    """이미 열려 있는 브라우저에 붙는 방법을 안내한다."""
+    print("=" * 68)
+    print("  이미 쓰고 있는 브라우저에 붙기")
+    print("=" * 68)
+    print("""
+  평소 쓰는 브라우저를 '원격 디버깅' 을 켠 채로 띄워 두면, 이 프로그램이
+  새 창을 만들지 않고 그 브라우저에 붙습니다.
+
+  이미 로그인해 둔 상태를 그대로 쓰므로 따로 로그인할 필요가 없습니다.
+
+  1) 브라우저를 완전히 종료합니다 (창만 닫지 말고 앱을 끄세요)
+
+  2) 터미널에서 원격 디버깅을 켠 채로 띄웁니다
+
+     크롬:
+       open -a "Google Chrome" --args --remote-debugging-port=9222
+
+     엣지:
+       open -a "Microsoft Edge" --args --remote-debugging-port=9222
+
+     그 밖의 크로미움 계열 (앱 이름만 바꾸세요):
+       open -a "브라우저이름" --args --remote-debugging-port=9222
+
+     앱 경로로 직접 띄우려면:
+       "/Applications/브라우저이름.app/Contents/MacOS/실행파일" \\
+           --remote-debugging-port=9222
+
+  3) 그 브라우저에서 예약 사이트에 로그인해 둡니다
+
+  4) 붙어서 수집합니다
+
+       python3 scripts/setup_sites.py xgolf --connect http://localhost:9222
+
+     매번 붙이려면 환경변수로 지정해 두어도 됩니다:
+
+       export GOLF_BROWSER_CDP=http://localhost:9222
+
+  주의
+    - 붙은 브라우저는 닫지 않습니다. 새 탭만 열고 그 탭만 닫습니다.
+    - 원격 디버깅 포트가 열려 있는 동안에는 같은 컴퓨터의 다른 프로그램도
+      그 브라우저를 제어할 수 있습니다. 수집이 끝나면 브라우저를 껐다가
+      평소대로 다시 여세요.
+    - 이 방식에서는 로그인 세션을 따로 저장할 필요가 없습니다.
+""")
+    print("=" * 68)
+    return 0
 
 
 def cmd_status() -> int:
@@ -88,7 +163,7 @@ def cmd_clear(keys: list[str]) -> int:
     return 0
 
 
-def login_one(key: str, *, check_url: str = "") -> bool:
+def login_one(key: str, *, check_url: str = "", browser_name: str = "") -> bool:
     """브라우저 창을 띄워 직접 로그인하게 한다."""
     site = SITES[key]
     print("\n" + "=" * 68)
@@ -113,8 +188,16 @@ def login_one(key: str, *, check_url: str = "") -> bool:
     try:
         with sync_playwright() as p:
             # 세션을 남겨야 하므로 persistent context 로, 창은 보이게 연다
+            exe = ""
+            if browser_name:
+                exe = resolve_browser(browser_name)
+                if not exe:
+                    print(f"  '{browser_name}' 브라우저를 찾지 못했습니다.")
+                    print("  설치된 목록: python3 scripts/login.py --list-browsers")
+                    return False
+                print(f"  사용할 브라우저: {exe}")
             browser, context = open_context(p, site_id=key, headless=False,
-                                            use_session=True)
+                                            executable_path=exe, use_session=True)
             page = context.pages[0] if context.pages else context.new_page()
             try:
                 page.goto(site["login_url"], wait_until="domcontentloaded",
@@ -178,8 +261,18 @@ def main() -> int:
     ap.add_argument("--clear", nargs="*", metavar="사이트", help="저장된 로그인 지우기")
     ap.add_argument("--check-url", default="",
                     help="로그인 확인에 쓸 목록 페이지 주소")
+    ap.add_argument("--browser", default="",
+                    help="쓸 브라우저 이름이나 경로 (예: Chrome). 기본은 내장 크로미움")
+    ap.add_argument("--list-browsers", action="store_true",
+                    help="설치된 브라우저 목록 보기")
+    ap.add_argument("--help-connect", action="store_true",
+                    help="이미 열어 둔 브라우저에 붙는 방법 안내")
     args = ap.parse_args()
 
+    if args.list_browsers:
+        return cmd_list_browsers()
+    if args.help_connect:
+        return cmd_help_connect()
     if args.status:
         return cmd_status()
     if args.clear is not None:
@@ -206,7 +299,7 @@ def main() -> int:
     done = []
     for key in targets:
         try:
-            if login_one(key, check_url=args.check_url):
+            if login_one(key, check_url=args.check_url, browser_name=args.browser):
                 done.append(SITES[key]["name"])
         except KeyboardInterrupt:
             print("\n중단했습니다.")

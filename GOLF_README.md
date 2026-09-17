@@ -240,6 +240,74 @@ python3 scripts/login.py --clear xgolf   # 지우고
 python3 scripts/login.py xgolf           # 다시 로그인
 ```
 
+### 🌐 쓸 브라우저 고르기
+
+기본은 Playwright가 내려받은 크로미움입니다. 평소 쓰는 브라우저를 지정할 수도 있습니다.
+
+```bash
+python3 scripts/login.py --list-browsers
+```
+
+```
+  이름                           제어 가능      경로
+  ----------------------------------------------------------------
+  Google Chrome                  가능         /Applications/Google Chrome.app/...
+  Arc                            가능         /Applications/Arc.app/...
+  Safari                         어려움        /Applications/Safari.app/...
+```
+
+이름으로 지정합니다.
+
+```bash
+python3 scripts/login.py xgolf --browser Chrome
+python3 scripts/setup_sites.py xgolf --browser Arc
+```
+
+> Playwright는 **크로미움 계열·파이어폭스·웹킷**만 제어할 수 있습니다.
+> 크로미움 기반 브라우저(Chrome, Edge, Brave, Arc, Whale 등)는 대부분 됩니다.
+> 목록에 "어려움"으로 나와도 크로미움 기반이면 동작할 수 있으니 시도해 보세요.
+> 경로를 직접 줘도 됩니다: `--browser "/Applications/이름.app"`
+
+### 🔗 이미 열어 둔 브라우저에 붙기
+
+**가장 편한 방법입니다.** 평소 쓰는 브라우저를 원격 디버깅을 켠 채로 띄워 두면,
+새 창을 만들지 않고 **그 브라우저에 붙습니다.** 이미 로그인해 둔 상태를 그대로 쓰므로
+따로 로그인할 필요가 없습니다.
+
+```bash
+python3 scripts/login.py --help-connect
+```
+
+절차는 이렇습니다.
+
+1. 브라우저를 완전히 종료합니다 (창만 닫지 말고 앱을 끄세요)
+2. 원격 디버깅을 켜고 띄웁니다
+
+   ```bash
+   open -a "Google Chrome" --args --remote-debugging-port=9222
+   ```
+
+3. 그 브라우저에서 예약 사이트에 로그인해 둡니다
+4. 붙어서 수집합니다
+
+   ```bash
+   python3 scripts/setup_sites.py xgolf --connect http://localhost:9222
+   ```
+
+환경변수로 지정해 두면 매번 붙습니다.
+
+```bash
+export GOLF_BROWSER_CDP=http://localhost:9222
+```
+
+| 이 방식의 좋은 점 | 주의할 점 |
+|---|---|
+| 이미 로그인된 상태를 그대로 사용 | 원격 디버깅 포트가 열린 동안에는 **같은 컴퓨터의 다른 프로그램도** 그 브라우저를 제어할 수 있습니다. 수집이 끝나면 껐다가 평소대로 다시 여세요 |
+| 캡차·2단계 인증을 직접 처리 가능 | 브라우저를 한 번 완전히 종료해야 합니다 |
+| 세션을 따로 저장할 필요 없음 | |
+
+> 붙은 브라우저는 **닫지 않습니다.** 새 탭만 열고, 다 읽으면 그 탭만 닫습니다.
+
 ### 설정한 뒤 확인
 
 ```bash
