@@ -28,15 +28,22 @@
         <small>비우면 소스가 주는 전체 날짜</small>
       </label>
 
-      <label class="field">
-        <span>🕗 티오프 시작</span>
-        <input type="time" id="tee_from" name="tee_from" value="06:00">
-      </label>
-
-      <label class="field">
-        <span>🕛 티오프 종료</span>
-        <input type="time" id="tee_to" name="tee_to" value="10:00">
-      </label>
+      <div class="field span2">
+        <span>🕗 티오프 시간대</span>
+        <div class="range-row">
+          <input type="time" id="tee_from" name="tee_from" value="06:00">
+          <span class="tilde">~</span>
+          <input type="time" id="tee_to" name="tee_to" value="10:00">
+        </div>
+        <div class="presets">
+          <button type="button" data-from="05:00" data-to="08:00">새벽</button>
+          <button type="button" data-from="08:00" data-to="11:00">오전</button>
+          <button type="button" data-from="11:00" data-to="15:00">낮</button>
+          <button type="button" data-from="15:00" data-to="19:00">오후</button>
+          <button type="button" data-from="" data-to="">전체</button>
+        </div>
+        <small>이 시간대 안에 있는 티타임만 나옵니다</small>
+      </div>
 
       <label class="field">
         <span>🚗 이동 시간 상한 (분)</span>
@@ -47,7 +54,11 @@
       <label class="field">
         <span>💰 그린피 상한 (원)</span>
         <input type="number" id="max_price" name="max_price" min="0" step="10000" value="200000">
-        <small>1인 기준</small>
+        <small>1인 기준 · 이 금액 이하만</small>
+        <label class="check">
+          <input type="checkbox" id="include_unknown_price" name="include_unknown_price" value="1">
+          <span>가격 미기재도 포함</span>
+        </label>
       </label>
 
       <label class="field">

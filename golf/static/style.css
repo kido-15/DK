@@ -117,3 +117,22 @@ footer {
   color: var(--muted); font-size: .78rem;
 }
 footer p { margin: 4px 0; }
+
+/* 시간대 빠른 선택 */
+.field.span2 { grid-column: span 2; }
+@media (max-width: 640px) { .field.span2 { grid-column: 1 / -1; } }
+.range-row { display: flex; align-items: center; gap: 8px; }
+.range-row input { flex: 1; min-width: 0; }
+.tilde { color: var(--muted); }
+.presets { display: flex; gap: 6px; flex-wrap: wrap; margin-top: 2px; }
+.presets button {
+  background: var(--bg); color: var(--muted); border: 1px solid var(--line);
+  border-radius: 999px; padding: 3px 12px; font-size: .78rem; font-weight: 500;
+}
+.presets button:hover { border-color: var(--accent); color: var(--text); }
+.presets button.on { background: var(--accent); color: #fff; border-color: var(--accent); }
+.check {
+  display: flex; align-items: center; gap: 6px; margin-top: 4px;
+  font-size: .78rem; color: var(--muted); cursor: pointer;
+}
+.check input { width: auto; padding: 0; }

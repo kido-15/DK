@@ -86,6 +86,7 @@ def build_query(params: dict[str, list[str]], state: AppState) -> tuple[Optional
         max_drive_minutes=as_int("max_drive"),
         max_price=as_int("max_price"),
         min_price=as_int("min_price"),
+        include_unknown_price=one("include_unknown_price") in ("1", "true", "on", "yes"),
         regions=[r.strip() for r in regions],
         sort=one("sort", "score") or "score",
         limit=as_int("limit") or 50,

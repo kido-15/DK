@@ -24,6 +24,8 @@ sys.path.insert(0, os.path.dirname(os.path.dirname(os.path.abspath(__file__))))
 
 from golf.courses import DEFAULT_PATH as COURSES_DEFAULT       # noqa: E402
 from golf.courses import CourseBook                            # noqa: E402
+from golf.sources.browser_source import (BrowserSource, find_chromium,   # noqa: E402
+                                         playwright_available)
 from golf.sources.web_source import DEFAULT_CONFIG_PATH        # noqa: E402
 from golf.sources.web_source import HttpClient, WebSource      # noqa: E402
 
@@ -50,18 +52,16 @@ SITES = {
         "name": "엑스골프",
         "home": "https://www.xgolf.com",
         "hints": [
-            "부킹/조인 목록 화면을 연 뒤 F12 → Network 탭에서 새로고침하세요.",
-            "목록이 페이지 이동 없이 갱신되면 XHR/Fetch 요청을 먼저 찾아보세요.",
-            "요청이 안 보이면 주소창의 목록 페이지 주소를 그대로 쓰면 됩니다.",
+            "부킹/조인 목록 화면을 브라우저에서 엽니다.",
+            "주소창의 주소를 그대로 복사해 붙여 넣으면 됩니다.",
         ],
     },
     "kakao": {
         "name": "카카오골프예약",
         "home": "https://golf.kakao.com",
         "hints": [
-            "화면이 스크롤할 때마다 채워지는 형태면 거의 확실히 내부 API를 씁니다.",
-            "F12 → Network → Fetch/XHR 필터를 켜고 스크롤해 보세요.",
-            "JSON을 돌려주는 요청이 잡히면 그 주소가 가장 안정적입니다.",
+            "티타임 목록 화면을 브라우저에서 엽니다.",
+            "스크롤하면 목록이 채워지는 형태라도 그대로 붙여 넣으면 됩니다.",
         ],
     },
     "golfpang": {
@@ -69,16 +69,16 @@ SITES = {
         "home": "https://www.golfpang.com",
         "hints": [
             "특가/당일 목록 화면이 대상입니다.",
-            "모바일 웹(m. 으로 시작하는 주소)이 있으면 그쪽이 구조가 단순해",
-            "크롤링이 훨씬 안정적인 경우가 많습니다. 둘 다 시도해 보세요.",
+            "모바일 웹(m. 으로 시작하는 주소)이 있으면 그쪽도 시도해 보세요.",
         ],
     },
 }
 
 COMMON_NOTES = [
-    "로그인해야만 목록이 보이는 화면이라면 이 프로그램으로는 다루지 않습니다.",
+    "개발자도구(F12)를 열 필요 없습니다. 주소창의 주소면 충분합니다.",
+    "목록이 자바스크립트로 그려지는 화면이면 브라우저를 띄워 자동으로 처리합니다.",
+    "로그인해야만 목록이 보이는 화면은 다루지 않습니다.",
     "  (로그인 세션을 흉내 내는 것은 약관 위반 소지가 큽니다)",
-    "로그인 없이 보이는 목록만 대상으로 하세요.",
 ]
 
 
@@ -183,7 +183,7 @@ def setup_one(key: str, cfg: dict, config_path: str) -> bool:
     for n in COMMON_NOTES:
         print(f"    {n}")
     print()
-    print("  찾았으면 그 요청을 우클릭 → Copy → Copy link address 로 복사하세요.")
+    print("  주소창의 주소를 복사해 붙여 넣으세요.")
     print("  (건너뛰려면 그냥 Enter)")
     print()
 
@@ -224,42 +224,40 @@ def setup_one(key: str, cfg: dict, config_path: str) -> bool:
                 val = d.strftime(fmt)
             probe_url = probe_url.replace(token, val)
 
+    text = None
     try:
         text = client.get(probe_url)
+        print(f"  ✓ {len(text):,}자 수신")
     except Exception as exc:
-        print(f"\n  ✗ 요청 실패: {exc}")
-        print("    - 403/401 → 로그인이 필요하거나 헤더가 더 필요한 주소입니다")
-        print("    - 타임아웃 → 해외 IP 차단일 수 있습니다. 국내망에서 실행하세요")
-        print("    - 그 밖에는 주소를 다시 확인해 주세요")
-        return False
+        print(f"  · 일반 요청 실패: {exc}")
 
-    print(f"  ✓ {len(text):,}자 수신")
+    source = None
+    if text:
+        fmt = "json" if text.lstrip().startswith(("{", "[")) else "html"
+        print(f"  ✓ 형식: {fmt}")
+        print("\n  구조를 분석합니다...")
+        source = (probe.analyze_json(text, key, site["name"], url) if fmt == "json"
+                  else probe.analyze_html(text, key, site["name"], url))
 
-    fmt = "json" if text.lstrip().startswith(("{", "[")) else "html"
-    print(f"  ✓ 형식: {fmt}")
-
-    # 구조 분석
-    print("\n  구조를 분석합니다...")
-    if fmt == "json":
-        source = probe.analyze_json(text, key, site["name"], url)
-    else:
-        source = probe.analyze_html(text, key, site["name"], url)
-
+    # 일반 요청으로 안 되면 브라우저를 띄워 직접 열어 본다.
+    # 플랫폼 예약 사이트는 대부분 목록을 자바스크립트로 그리기 때문이다.
     if not source:
-        print("\n  ✗ 목록 구조를 찾지 못했습니다.")
-        if fmt == "html":
-            print("    자바스크립트로 그려지는 화면일 가능성이 큽니다.")
-            print("    F12 → Network → Fetch/XHR 에서 JSON 주소를 찾아 다시 시도해 보세요.")
-        dump = os.path.join("data", "golf", f"probe-{key}.txt")
-        os.makedirs(os.path.dirname(dump), exist_ok=True)
-        with open(dump, "w", encoding="utf-8") as f:
-            f.write(text)
-        print(f"    받은 응답을 저장했습니다: {dump}")
-        return False
+        print("\n  일반 요청으로는 목록을 찾지 못했습니다.")
+        print("  브라우저를 띄워 화면을 직접 열고, 오가는 데이터를 살펴보겠습니다.")
+        source = try_browser(key, site, url, headers)
+        if not source and text:
+            dump = os.path.join("data", "golf", f"probe-{key}.txt")
+            os.makedirs(os.path.dirname(dump), exist_ok=True)
+            with open(dump, "w", encoding="utf-8") as f:
+                f.write(text)
+            print(f"\n  받은 응답을 저장했습니다: {dump}")
+        if not source:
+            return False
 
     # 필수 필드 점검
     fields = source.get("fields") or {}
-    missing = [k for k in ("course_name", "tee_time", "green_fee") if k not in fields]
+    missing = ([] if source.get("format") == "browser"
+               else [k for k in ("course_name", "tee_time", "green_fee") if k not in fields])
     if missing:
         print(f"\n  [주의] 자동으로 찾지 못한 필드: {', '.join(missing)}")
         print("  위 출력의 '첫 항목 텍스트' 를 보고 직접 넣어야 할 수 있습니다.")
@@ -284,9 +282,76 @@ def setup_one(key: str, cfg: dict, config_path: str) -> bool:
     return True
 
 
+def try_browser(key: str, site: dict, url: str, headers: dict) -> dict | None:
+    """브라우저로 페이지를 열어 목록 API를 찾아낸다.
+
+    개발자도구에서 XHR을 뒤지는 일을 대신한다. 찾아낸 API 주소는 설정으로
+    남기므로, 이후에는 브라우저 없이 빠르게 같은 목록을 받아 올 수 있다.
+    """
+    if not playwright_available():
+        print("\n  브라우저 모드를 쓰려면 Playwright 가 필요합니다:")
+        print("    pip3 install playwright")
+        print("    python3 -m playwright install chromium")
+        print("\n  설치한 뒤 이 명령을 다시 실행하세요:")
+        print(f"    python3 scripts/setup_sites.py {key}")
+        return None
+
+    if not ask_yn("\n  브라우저를 띄워 볼까요? (20~30초 걸립니다)", True):
+        return None
+
+    show = ask_yn("  브라우저 창을 눈으로 보시겠습니까? (안 보이게 하려면 n)", False)
+
+    d = date.today() + timedelta(days=7)
+    src = BrowserSource(url, source_id=key, name=site["name"],
+                        headless=not show, wait_ms=4000, scrolls=3)
+    print("  여는 중...")
+    result = src.open_and_capture(d)
+
+    if result.tee_times:
+        print(f"  ✓ 티타임 {len(result.tee_times)}건을 찾았습니다")
+        for t in result.tee_times[:5]:
+            fee = f"{t.green_fee:,}원" if t.green_fee >= 0 else "가격미상"
+            print(f"      {t.course_name[:18]:18s} {t.tee_time:%H:%M} {fee:>12s}")
+        if len(result.tee_times) > 5:
+            print(f"      ... 외 {len(result.tee_times) - 5}건")
+    else:
+        print(f"  ✗ {result.reason}")
+        return None
+
+    if result.from_api and result.apis:
+        best = max(result.apis, key=lambda a: a.tee_count)
+        print(f"\n  ✓ 목록 API 를 찾았습니다")
+        print(f"      {best.url[:90]}")
+        print(f"      레코드 위치: {best.records_path}")
+        print("    이 주소를 저장하면 다음부터는 브라우저 없이 빠르게 수집합니다.")
+        cfg = best.to_source_config(key, site["name"])
+        if headers:
+            cfg["request"]["headers"] = headers
+        return cfg
+
+    # API 를 못 찾으면 브라우저로 계속 여는 설정으로 남긴다 (느리지만 동작한다)
+    print("\n  목록 API 는 못 찾았지만 화면에서는 읽어 냈습니다.")
+    print("  이 사이트는 매번 브라우저로 열어야 합니다 (한 번에 20~30초).")
+    return {
+        "id": key,
+        "name": site["name"],
+        "enabled": True,
+        "format": "browser",
+        "request": {"url": url, "wait_ms": 4000, "scrolls": 3},
+        "_note": "브라우저로 화면을 열어 읽습니다. Playwright 가 설치돼 있어야 합니다.",
+    }
+
+
 def test_source(source_cfg: dict) -> None:
     """설정한 소스를 실제로 호출해 결과를 보여 준다."""
-    src = WebSource(source_cfg)
+    if source_cfg.get("format") == "browser":
+        req = source_cfg.get("request") or {}
+        src = BrowserSource(req.get("url", ""), source_id=source_cfg["id"],
+                            name=source_cfg.get("name", ""),
+                            wait_ms=req.get("wait_ms", 4000),
+                            scrolls=req.get("scrolls", 3))
+    else:
+        src = WebSource(source_cfg)
     d = date.today() + timedelta(days=7)
     print(f"\n  {d} 기준으로 호출합니다...")
     rows = src.fetch([d])
@@ -378,7 +443,7 @@ def main() -> int:
     print("=" * 68)
     print("\n  이 마법사는 브라우저에서 복사한 목록 주소를 받아")
     print("  구조를 분석하고 설정 파일에 저장합니다.")
-    print("\n  준비물: 크롬/엣지 브라우저, F12 개발자도구")
+    print("\n  준비물: 브라우저 (개발자도구는 필요 없습니다)")
     print("  ※ 반드시 국내 PC에서 실행하세요 (해외 IP는 차단되는 경우가 많습니다)")
     print(f"\n  대상: {', '.join(SITES[t]['name'] for t in targets)}")
 

@@ -144,6 +144,7 @@ class SearchQuery:
     max_drive_minutes: Optional[int] = None  # 편도 이동 허용 시간 (분)
     max_price: Optional[int] = None          # 1인 그린피 상한 (원)
     min_price: Optional[int] = None
+    include_unknown_price: bool = False      # 가격이 안 적힌 티타임도 포함할지
 
     regions: list[str] = field(default_factory=list)  # 지역 필터 (예: ["경기", "충북"])
     sort: str = "score"               # score | price | drive | tee_time

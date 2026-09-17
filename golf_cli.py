@@ -142,6 +142,7 @@ def cmd_search(args) -> int:
         max_drive_minutes=args.max_drive,
         max_price=args.max_price,
         min_price=args.min_price,
+        include_unknown_price=args.include_unknown_price,
         regions=[r.strip() for r in (args.region or "").split(",") if r.strip()],
         sort=args.sort,
         limit=args.limit,
@@ -204,6 +205,8 @@ def main() -> int:
     ap.add_argument("--max-drive", type=int, help="편도 이동 시간 상한 (분)")
     ap.add_argument("--max-price", type=int, help="1인 그린피 상한 (원)")
     ap.add_argument("--min-price", type=int, help="1인 그린피 하한 (원)")
+    ap.add_argument("--include-unknown-price", action="store_true",
+                    help="가격이 안 적힌 티타임도 결과에 포함")
     ap.add_argument("--region", help="지역 필터. 콤마 구분 (예: 경기,충북)")
     ap.add_argument("--sort", default="score",
                     choices=["score", "price", "drive", "tee_time"], help="정렬 기준")

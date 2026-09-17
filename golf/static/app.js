@@ -73,6 +73,11 @@ function renderStats(stats) {
   let html = `<div class="flow">${flow}`;
   html += `<span style="margin-left:auto">길찾기 호출 ${stats.routed}회 · ${stats.elapsed_sec}초</span></div>`;
 
+  if (stats.duplicates > 0) {
+    html += `<h4>중복 제거 ${stats.duplicates}건</h4>`;
+    html += `<div class="names">골프장·시각·가격·예약처가 모두 같은 티타임을 하나로 합쳤습니다.</div>`;
+  }
+
   if (stats.route_providers && Object.keys(stats.route_providers).length) {
     const ps = Object.entries(stats.route_providers)
       .map(([k, v]) => `${PROVIDER_LABEL[k] || k} ${v}건`).join(", ");
@@ -212,6 +217,21 @@ $("search-form").addEventListener("submit", async (e) => {
     btn.textContent = "검색";
   }
 });
+
+// 시간대 빠른 선택
+for (const btn of document.querySelectorAll(".presets button")) {
+  btn.addEventListener("click", () => {
+    $("tee_from").value = btn.dataset.from;
+    $("tee_to").value = btn.dataset.to;
+    for (const b of document.querySelectorAll(".presets button")) b.classList.remove("on");
+    btn.classList.add("on");
+  });
+}
+for (const id of ["tee_from", "tee_to"]) {
+  $(id).addEventListener("input", () => {
+    for (const b of document.querySelectorAll(".presets button")) b.classList.remove("on");
+  });
+}
 
 $("toggle-stats").addEventListener("click", () => {
   const el = $("stats");

@@ -38,6 +38,7 @@ class SearchStats:
     after_basic: int = 0        # 날짜/시간/가격 필터 통과
     after_prefilter: int = 0    # 직선거리 프리필터 통과
     routed: int = 0             # 길찾기 API를 실제로 호출한 수
+    duplicates: int = 0         # 똑같아서 걸러낸 중복 수
     final: int = 0              # 최종 결과 수
     source_errors: dict = field(default_factory=dict)
     unmatched_names: list = field(default_factory=list)
@@ -52,6 +53,7 @@ class SearchStats:
             "after_basic": self.after_basic,
             "after_prefilter": self.after_prefilter,
             "routed": self.routed,
+            "duplicates": self.duplicates,
             "final": self.final,
             "source_errors": self.source_errors,
             "unmatched_names": self.unmatched_names[:20],
@@ -92,6 +94,12 @@ class GolfSearch:
         dates = [q.play_date] if q.play_date else []
         tee_times = self.collect(dates, stats)
         stats.fetched = len(tee_times)
+
+        # 완전히 같은 티타임은 하나만 남긴다. 설정이 잘못돼 같은 페이지를
+        # 여러 번 받아 오는 경우가 있고, 그대로 두면 결과가 부풀려진다.
+        # 예약처가 다르면(source) 각각 보여 준다.
+        tee_times = _dedupe(tee_times)
+        stats.duplicates = stats.fetched - len(tee_times)
 
         # 2단계: 골프장 매칭
         for t in tee_times:
@@ -160,9 +168,13 @@ class GolfSearch:
             return False
         if q.tee_to and t.tee_time > q.tee_to:
             return False
-        # 가격을 모르는 슬롯(-1)은 가격 조건이 걸려 있으면 제외한다.
+        # 가격을 모르는 슬롯(-1)은 상한 조건을 확인할 수 없다.
+        # 기본적으로는 제외하고, 원하면 포함할 수 있게 한다.
         if q.max_price is not None:
-            if t.green_fee < 0 or t.green_fee > q.max_price:
+            if t.green_fee < 0:
+                if not q.include_unknown_price:
+                    return False
+            elif t.green_fee > q.max_price:
                 return False
         if q.min_price is not None and 0 <= t.green_fee < q.min_price:
             return False
@@ -241,3 +253,16 @@ class GolfSearch:
 
 def _to_min(t: time) -> float:
     return t.hour * 60 + t.minute
+
+
+def _dedupe(tee_times: list[TeeTime]) -> list[TeeTime]:
+    """골프장·날짜·시각·가격·예약처가 모두 같으면 같은 티타임으로 본다."""
+    seen: set[tuple] = set()
+    out: list[TeeTime] = []
+    for t in tee_times:
+        key = (t.course_name, t.play_date, t.tee_time, t.green_fee, t.source)
+        if key in seen:
+            continue
+        seen.add(key)
+        out.append(t)
+    return out

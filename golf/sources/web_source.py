@@ -440,14 +440,37 @@ DEFAULT_CONFIG_PATH = os.path.join(
 )
 
 
-def load_sources(path: str = DEFAULT_CONFIG_PATH, *, only_enabled: bool = True) -> list[WebSource]:
-    """설정 파일에서 소스 목록을 읽는다. 파일이 없으면 빈 목록."""
+def load_sources(path: str = DEFAULT_CONFIG_PATH, *, only_enabled: bool = True) -> list:
+    """설정 파일에서 소스 목록을 읽는다. 파일이 없으면 빈 목록.
+
+    format 이 "browser" 인 항목은 브라우저로 여는 소스로 만든다.
+    """
     if not os.path.exists(path):
         return []
     with open(path, encoding="utf-8") as f:
         data = json.load(f)
     configs = data.get("sources") if isinstance(data, dict) else data
-    sources = [WebSource(c) for c in (configs or [])]
+
+    sources = []
+    for c in (configs or []):
+        if not isinstance(c, dict) or not c.get("id"):
+            continue
+        if (c.get("format") or "").lower() == "browser":
+            from .browser_source import BrowserSource
+            req = c.get("request") or {}
+            src = BrowserSource(
+                req.get("url", ""),
+                source_id=c["id"],
+                name=c.get("name") or c["id"],
+                wait_ms=int(req.get("wait_ms", 4000)),
+                scrolls=int(req.get("scrolls", 3)),
+            )
+            src.enabled = bool(c.get("enabled", False))
+            src.format = "browser"
+            sources.append(src)
+        else:
+            sources.append(WebSource(c))
+
     if only_enabled:
-        sources = [s for s in sources if s.enabled]
+        sources = [s for s in sources if getattr(s, "enabled", False)]
     return sources

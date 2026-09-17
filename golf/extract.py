@@ -197,6 +197,56 @@ def extract_date(block: htmlsel.Node):
     return None
 
 
+# 골프장 이름다운 텍스트인지 가리는 단서
+COURSE_HINT = re.compile(r"(CC|GC|컨트리|골프|클럽|리조트|밸리|파크|힐스|뷰)", re.IGNORECASE)
+# 이름 칸이 아닌 것들
+NOT_A_NAME = re.compile(
+    r"^(예약|부킹|신청|선택|가능|마감|잔여|남은|조인|카트|캐디|식사|퍼블릭|회원|비회원"
+    r"|아웃|인|OUT|IN|18홀|9홀|무료|포함|불포함|\d+)$", re.IGNORECASE)
+
+
+def extract_course_name(block: htmlsel.Node) -> str:
+    """덩어리 안에서 골프장 이름을 찾는다.
+
+    여러 골프장을 모아 보여 주는 플랫폼에서는 행마다 이름이 다르므로
+    반드시 각 행에서 뽑아야 한다.
+
+    CC/컨트리클럽 같은 단서가 있는 텍스트를 먼저 보고, 없으면 시각·금액·상태가
+    아닌 텍스트 중 가장 그럴듯한 것을 고른다.
+    """
+    candidates: list[tuple[int, str]] = []
+
+    for _, text in _leaf_texts(block):
+        t = text.strip()
+        if not t or len(t) > 40:
+            continue
+        if TIME_RE.search(t) or PRICE_RE.search(t) or DATE_RE.search(t):
+            continue
+        if NOT_A_NAME.match(t.replace(" ", "")):
+            continue
+        if any(w in t.lower() for w in UNAVAILABLE_WORDS):
+            continue
+        if any(w in t for w in AVAILABLE_WORDS) and len(t) <= 6:
+            continue
+        if t.replace(" ", "").isdigit():
+            continue
+
+        score = 0
+        if COURSE_HINT.search(t):
+            score += 10
+        if 3 <= len(t) <= 20:
+            score += 3
+        # 한글이 섞여 있으면 이름일 가능성이 높다
+        if re.search(r"[가-힣]", t):
+            score += 2
+        candidates.append((score, t))
+
+    if not candidates:
+        return ""
+    candidates.sort(key=lambda c: c[0], reverse=True)
+    return candidates[0][1]
+
+
 def extract_link(block: htmlsel.Node, base_url: str = "") -> str:
     import urllib.parse
     link = block.select_one("a[href]")
@@ -254,17 +304,23 @@ def detect_login_wall(html: str, root: Optional[htmlsel.Node] = None) -> bool:
 def auto_extract(
     html: str,
     *,
-    course_name: str,
+    course_name: str = "",
     source_id: str,
     play_date: Optional[date] = None,
     base_url: str = "",
     min_confidence: float = 0.35,
+    detect_names: Optional[bool] = None,
 ) -> ExtractResult:
     """페이지에서 티타임을 자동으로 뽑는다. 설정이 필요 없다.
 
-    course_name 은 어느 골프장 페이지인지 호출자가 알려 준다.
-    개별 골프장 홈페이지에는 자기 이름이 안 적혀 있는 경우가 많기 때문이다.
+    course_name 을 주면 그 골프장의 페이지로 보고 모든 티타임에 같은 이름을 붙인다
+    (개별 골프장 홈페이지에는 자기 이름이 안 적혀 있는 경우가 많다).
+
+    주지 않으면 여러 골프장을 모아 놓은 목록으로 보고 행마다 이름을 찾는다
+    (플랫폼 예약 사이트가 이 경우다).
     """
+    if detect_names is None:
+        detect_names = not course_name
     result = ExtractResult()
     root = htmlsel.parse(html)
 
@@ -308,9 +364,15 @@ def auto_extract(
         if d is None:
             continue
 
+        name = extract_course_name(block) if detect_names else course_name
+        if not name:
+            name = course_name        # 행에서 못 찾으면 호출자가 준 이름으로
+        if not name:
+            continue                  # 이름 없는 티타임은 쓸모가 없다
+
         tee_times.append(
             TeeTime(
-                course_name=course_name,
+                course_name=name,
                 play_date=d,
                 tee_time=t,
                 green_fee=extract_price(block),
@@ -335,7 +397,7 @@ def auto_extract(
 def auto_extract_json(
     data: Any,
     *,
-    course_name: str,
+    course_name: str = "",
     source_id: str,
     play_date: Optional[date] = None,
     base_url: str = "",
@@ -381,9 +443,15 @@ def auto_extract_json(
         text = " ".join(str(v) for v in rec.values() if v is not None).lower()
         if any(w in text for w in UNAVAILABLE_WORDS):
             continue
+        name = course_name
+        if not name and keys.get("course_name"):
+            name = str(rec.get(keys["course_name"]) or "").strip()
+        if not name:
+            continue
+
         tee_times.append(
             TeeTime(
-                course_name=course_name,
+                course_name=name,
                 play_date=d,
                 tee_time=t,
                 green_fee=fee,
@@ -446,5 +514,12 @@ def _guess_json_keys(arr: list[dict]) -> dict[str, str]:
         if "play_date" not in keys and all(DATE_RE.search(t) or
                                            (t.isdigit() and len(t) == 8) for t in texts):
             keys["play_date"] = k
+
+        # 골프장 이름: 값마다 다르고, 한글이 섞인 짧은 문자열
+        if "course_name" not in keys and all(isinstance(v, str) for v in values):
+            if all(2 <= len(t) <= 30 for t in texts) and any(
+                    re.search(r"[가-힣]", t) for t in texts):
+                if any(COURSE_HINT.search(t) for t in texts) or len(set(texts)) > 1:
+                    keys["course_name"] = k
 
     return keys
