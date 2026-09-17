@@ -82,9 +82,14 @@ def node_signature(node: htmlsel.Node) -> str:
 
 def find_repeating_blocks(root: htmlsel.Node, min_count: int = 2) -> list[tuple[str, list]]:
     """같은 부모 밑에서 같은 서명으로 반복되는 요소 묶음을 점수순으로 반환한다."""
+    # 목록이 될 수 없는 요소들. 드롭다운 항목(option)이 여러 개 반복되는 것을
+    # 티타임 목록 후보로 올리면 엉뚱한 곳을 뒤지게 된다.
+    never_a_list = {"option", "script", "style", "head", "meta", "link",
+                    "br", "hr", "path", "svg", "g"}
+
     groups: dict[tuple[int, str], list] = {}
     for node in root.descendants():
-        if node.parent is None:
+        if node.parent is None or node.tag in never_a_list:
             continue
         key = (id(node.parent), node_signature(node))
         groups.setdefault(key, []).append(node)
@@ -131,9 +136,33 @@ def block_score(nodes: list) -> float:
 
 
 def _leaf_texts(block: htmlsel.Node) -> list[tuple[htmlsel.Node, str]]:
-    """가장 안쪽 요소들의 텍스트. 부모는 자식 텍스트를 다 물고 있어 제외한다."""
+    """가장 안쪽 요소들의 텍스트. 부모는 자식 텍스트를 다 물고 있어 제외한다.
+
+    드롭다운(select)은 고르지 않은 값까지 모두 텍스트로 들고 있어서, 그대로
+    읽으면 엉뚱한 시각이나 금액이 잡힌다. 선택된 항목만 값으로 본다.
+    """
     out = []
+    skip: set[int] = set()
+
     for node in block.descendants():
+        if id(node) in skip:
+            continue
+
+        if node.tag == "select":
+            options = [n for n in node.descendants() if n.tag == "option"]
+            for o in options:
+                skip.add(id(o))
+                for d in o.descendants():
+                    skip.add(id(d))
+            chosen = next((o for o in options if "selected" in o.attrs), None)
+            if chosen is None and options:
+                chosen = options[0]
+            if chosen is not None:
+                text = chosen.text
+                if text and len(text) <= 80:
+                    out.append((chosen, text))
+            continue
+
         text = node.text
         if not text or len(text) > 80:
             continue

@@ -25,6 +25,7 @@ import os
 import re
 import sys
 import urllib.parse
+import urllib.request
 from dataclasses import dataclass, field
 from datetime import date
 from typing import Any, Optional
@@ -404,6 +405,132 @@ def open_context(p, *, site_id: str = "", headless: bool = True,
         args["executable_path"] = exe
     browser = _with_fallback(p.chromium.launch, args)
     return browser, browser.new_context(**CONTEXT_OPTIONS)
+
+
+def list_open_tabs(cdp_url: str) -> list[dict]:
+    """붙을 브라우저에 지금 열려 있는 탭 목록.
+
+    Playwright 없이 CDP 의 조회 주소만 두드리면 되므로 가볍다.
+    """
+    base = cdp_url.rstrip("/")
+    try:
+        with urllib.request.urlopen(base + "/json/list", timeout=5) as resp:
+            data = json.loads(resp.read().decode("utf-8"))
+    except Exception:
+        return []
+
+    tabs = []
+    for t in data:
+        if t.get("type") != "page":
+            continue
+        url = t.get("url") or ""
+        if url.startswith(("devtools://", "chrome-extension://")):
+            continue
+        tabs.append({"title": t.get("title") or "(제목 없음)", "url": url,
+                     "id": t.get("id") or ""})
+    return tabs
+
+
+def capture_open_tab(cdp_url: str, *, tab_url: str = "", tab_index: int = 0,
+                     course_name: str = "", source_id: str = "tab",
+                     play_date=None, scroll: bool = True) -> "BrowserResult":
+    """이미 열려 있는 탭의 **지금 화면**을 그대로 읽는다.
+
+    드롭다운으로 조건을 고르고 검색을 눌러야 목록이 나오는 사이트가 많다.
+    그런 화면은 주소만으로는 재현되지 않으므로, 사람이 만들어 둔 화면을
+    그대로 읽는 편이 확실하다.
+
+    페이지를 새로 열거나 이동시키지 않는다. 보고 있는 그대로를 읽는다.
+    """
+    result = BrowserResult()
+    if not playwright_available():
+        result.reason = INSTALL_HINT
+        return result
+
+    from playwright.sync_api import sync_playwright
+
+    try:
+        with sync_playwright() as p:
+            browser = p.chromium.connect_over_cdp(cdp_url)
+            pages = [pg for ctx in browser.contexts for pg in ctx.pages]
+            if not pages:
+                browser.close()
+                result.reason = "열려 있는 탭이 없습니다"
+                return result
+
+            page = None
+            if tab_url:
+                page = next((pg for pg in pages if pg.url == tab_url), None)
+                if page is None:
+                    page = next((pg for pg in pages if tab_url in pg.url), None)
+            if page is None:
+                page = pages[min(tab_index, len(pages) - 1)]
+
+            captured: list[tuple[str, str, Any]] = []
+
+            def on_response(resp):
+                try:
+                    if _SKIP_URL.search(resp.url) or not resp.ok:
+                        return
+                    if "json" not in (resp.header_value("content-type") or "").lower():
+                        return
+                    captured.append((resp.url, resp.request.method, resp.json()))
+                except Exception:
+                    pass
+
+            page.on("response", on_response)
+
+            # 목록이 스크롤로 더 채워지는 경우가 있어 조금 내려 본다.
+            # 사람이 보던 화면이므로 이동은 하지 않는다.
+            if scroll:
+                try:
+                    for _ in range(3):
+                        page.mouse.wheel(0, 2500)
+                        page.wait_for_timeout(700)
+                except Exception:
+                    pass
+
+            result.page_title = page.title()
+            html = page.content()
+            current_url = page.url
+            try:
+                save_cookies(source_id, page.context.cookies())
+            except Exception:
+                pass
+            browser.close()      # 연결만 끊는다. 브라우저와 탭은 그대로 둔다
+    except Exception as exc:
+        result.reason = f"탭을 읽지 못했습니다: {exc}"
+        return result
+
+    # 스크롤하는 동안 목록 API 가 오갔다면 그쪽이 더 정확하다
+    for u, method, body in captured:
+        r = auto_extract_json(body, course_name=course_name, source_id=source_id,
+                              play_date=play_date, base_url=u)
+        if r.tee_times:
+            keys = {}
+            for path, arr in _find_record_arrays(body):
+                if path == r.block_selector:
+                    keys = _guess_json_keys(arr)
+                    break
+            result.apis.append(CapturedApi(u, method, body, len(r.tee_times),
+                                           r.block_selector, keys))
+
+    if result.apis:
+        best = max(result.apis, key=lambda a: a.tee_count)
+        r = auto_extract_json(best.body, course_name=course_name, source_id=source_id,
+                              play_date=play_date, base_url=best.url)
+        result.tee_times = r.tee_times
+        result.from_api = True
+        result.reason = f"화면을 읽는 동안 목록 API 도 찾았습니다: {best.url[:70]}"
+        return result
+
+    r = auto_extract(html, course_name=course_name, source_id=source_id,
+                     play_date=play_date, base_url=current_url)
+    result.tee_times = r.tee_times
+    result.reason = r.reason
+    if r.needs_login:
+        result.reason = "이 탭은 로그인 화면입니다. 로그인한 뒤 다시 읽어 주세요."
+    return result
 
 
 def close_context(browser, context, *, attached: bool = False, page=None) -> None:
