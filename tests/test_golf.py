@@ -298,5 +298,82 @@ class TestRouting(unittest.TestCase):
         self.assertEqual(len(r.cache), 1)
 
 
+class TestSetupWizard(unittest.TestCase):
+    """마법사가 브라우저에서 복사한 주소를 올바로 다듬는지."""
+
+    @classmethod
+    def setUpClass(cls):
+        import importlib.util
+        path = os.path.join(os.path.dirname(os.path.dirname(os.path.abspath(__file__))),
+                            "scripts", "setup_sites.py")
+        spec = importlib.util.spec_from_file_location("setup_sites", path)
+        cls.wiz = importlib.util.module_from_spec(spec)
+        spec.loader.exec_module(cls.wiz)
+
+    def test_date_templating(self):
+        """주소에 박힌 날짜가 치환자로 바뀌어야 매번 원하는 날짜로 조회된다."""
+        cases = [
+            ("https://x.com/list?playDate=20260920", "{date:%Y%m%d}"),
+            ("https://x.com/api?d=2026-09-20", "{date:%Y-%m-%d}"),
+            ("https://x.com/api?d=2026.09.20", "{date:%Y.%m.%d}"),
+        ]
+        for url, expected in cases:
+            new_url, fmt = self.wiz.templatize_date(url)
+            self.assertEqual(fmt, expected, url)
+            self.assertIn(expected, new_url)
+
+    def test_date_templating_ignores_non_dates(self):
+        """상품번호 같은 숫자를 날짜로 오인하면 안 된다."""
+        for url in ["https://x.com/list?id=12345678",
+                    "https://x.com/list?no=20261332",   # 13월 32일
+                    "https://x.com/list?v=19990101"]:   # 20xx 아님
+            new_url, fmt = self.wiz.templatize_date(url)
+            self.assertEqual(fmt, "", url)
+            self.assertEqual(new_url, url)
+
+    def test_page_templating(self):
+        for url, expect in [
+            ("https://x.com/l?page=3", "https://x.com/l?page={page}"),
+            ("https://x.com/l?d=1&pageNo=12", "https://x.com/l?d=1&pageNo={page}"),
+            ("https://x.com/l?d=1", "https://x.com/l?d=1"),
+        ]:
+            self.assertEqual(self.wiz.templatize_page(url), expect)
+
+    def test_upsert_replaces_same_id(self):
+        cfg = {"sources": [{"id": "xgolf", "name": "옛 설정"}]}
+        action = self.wiz.upsert_source(cfg, {"id": "xgolf", "name": "새 설정"})
+        self.assertEqual(action, "교체")
+        self.assertEqual(len(cfg["sources"]), 1)
+        self.assertEqual(cfg["sources"][0]["name"], "새 설정")
+
+        action = self.wiz.upsert_source(cfg, {"id": "golfpang", "name": "골팡"})
+        self.assertEqual(action, "추가")
+        self.assertEqual(len(cfg["sources"]), 2)
+
+    def test_three_sites_are_defined(self):
+        self.assertEqual(set(self.wiz.SITES), {"xgolf", "kakao", "golfpang"})
+
+
+class TestExampleConfig(unittest.TestCase):
+    def test_example_config_is_valid_json(self):
+        import json
+        path = os.path.join(os.path.dirname(os.path.dirname(os.path.abspath(__file__))),
+                            "config", "sources.example.json")
+        with open(path, encoding="utf-8") as f:
+            cfg = json.load(f)
+        ids = [s["id"] for s in cfg["sources"]]
+        self.assertEqual(ids, ["xgolf", "kakao", "golfpang"])
+        # 셀렉터를 추측해 넣어 두지 않았는지 확인한다
+        for s in cfg["sources"]:
+            self.assertFalse(s["enabled"], f"{s['id']} 는 기본적으로 꺼져 있어야 한다")
+            self.assertEqual(s["request"]["url"], "")
+
+    def test_unconfigured_source_reports_reason(self):
+        src = WebSource({"id": "x", "format": "html", "request": {"url": ""},
+                         "list_selector": "tr", "fields": {"course_name": {"selector": "td"}}})
+        self.assertEqual(src.fetch([date(2026, 9, 20)]), [])
+        self.assertIn("setup_sites", src.last_error)
+
+
 if __name__ == "__main__":
     unittest.main(verbosity=2)

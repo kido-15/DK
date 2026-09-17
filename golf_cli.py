@@ -66,6 +66,8 @@ def cmd_test_source(args) -> int:
     print(f"요청 {stats.get('requests', 0)}회 → 티타임 {len(rows)}건")
     for err in (stats.get("errors") or [])[:5]:
         print(f"  오류: {err}")
+    if target.last_error and not (stats.get("errors") or []):
+        print(f"  오류: {target.last_error}")
 
     if not rows:
         print("\n결과가 0건입니다. 확인해 볼 것:")

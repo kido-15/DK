@@ -320,7 +320,11 @@ class WebSource:
         url_tpl = self.request_cfg.get("url") or ""
 
         if not url_tpl:
-            self.last_error = "request.url이 비어 있습니다"
+            self.last_error = (
+                "request.url 이 비어 있습니다. "
+                "python3 scripts/setup_sites.py 로 이 사이트를 연결하세요."
+            )
+            self.last_stats = {"requests": 0, "rows": 0, "errors": [self.last_error]}
             return []
 
         requests_made = 0
