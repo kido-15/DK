@@ -251,20 +251,23 @@ python3 scripts/login.py --list-browsers
 ```
   이름                           제어 가능      경로
   ----------------------------------------------------------------
+  Aside                          가능         /Applications/Aside.app/...
   Google Chrome                  가능         /Applications/Google Chrome.app/...
-  Arc                            가능         /Applications/Arc.app/...
   Safari                         어려움        /Applications/Safari.app/...
 ```
+
+http·https 를 여는 앱으로 등록된 것만 목록에 올립니다. Electron으로 만든 앱
+(메신저·편집기)이나 오피스 앱은 크로미움을 품고 있어도 브라우저가 아니므로 빠집니다.
 
 이름으로 지정합니다.
 
 ```bash
-python3 scripts/login.py xgolf --browser Chrome
-python3 scripts/setup_sites.py xgolf --browser Arc
+python3 scripts/login.py xgolf --browser Aside
+python3 scripts/setup_sites.py xgolf --browser Chrome
 ```
 
 > Playwright는 **크로미움 계열·파이어폭스·웹킷**만 제어할 수 있습니다.
-> 크로미움 기반 브라우저(Chrome, Edge, Brave, Arc, Whale 등)는 대부분 됩니다.
+> 크로미움 기반 브라우저(Chrome, Edge, Brave, Arc, Aside, Whale 등)는 대부분 됩니다.
 > 목록에 "어려움"으로 나와도 크로미움 기반이면 동작할 수 있으니 시도해 보세요.
 > 경로를 직접 줘도 됩니다: `--browser "/Applications/이름.app"`
 
@@ -284,8 +287,10 @@ python3 scripts/login.py --help-connect
 2. 원격 디버깅을 켜고 띄웁니다
 
    ```bash
-   open -a "Google Chrome" --args --remote-debugging-port=9222
+   open -a "Aside" --args --remote-debugging-port=9222
    ```
+
+   (앱 이름만 바꾸면 다른 브라우저도 같습니다)
 
 3. 그 브라우저에서 예약 사이트에 로그인해 둡니다
 4. 붙어서 수집합니다

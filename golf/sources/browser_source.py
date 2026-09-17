@@ -180,19 +180,53 @@ def _mac_app_executable(app_path: str) -> str:
     return files[0] if files else ""
 
 
-def _is_chromium_bundle(app_path: str) -> bool:
-    """맥 앱이 크로미움 기반인지 짐작한다.
+def _read_plist(app_path: str) -> dict:
+    """맥 앱의 Info.plist 를 읽는다. 못 읽으면 빈 dict."""
+    path = os.path.join(app_path, "Contents", "Info.plist")
+    if not os.path.exists(path):
+        return {}
+    try:
+        import plistlib
+        with open(path, "rb") as f:
+            return plistlib.load(f) or {}
+    except Exception:
+        return {}
 
-    크로미움 기반 앱은 'XXX Framework.framework' 를 함께 담고 있다.
-    확실한 판별은 아니지만, 실행해 보기 전에 거르는 데는 쓸 만하다.
+
+def handles_web_urls(plist: dict) -> bool:
+    """이 앱이 http/https 주소를 여는 앱으로 등록돼 있는지.
+
+    브라우저는 반드시 http·https 를 자기가 처리한다고 선언한다.
+    엑셀이나 동영상 편집기처럼 브라우저가 아닌 앱은 선언하지 않으므로,
+    이것이 브라우저를 가려내는 가장 확실한 기준이다.
+    """
+    for entry in plist.get("CFBundleURLTypes") or []:
+        if not isinstance(entry, dict):
+            continue
+        schemes = [str(s).lower() for s in (entry.get("CFBundleURLSchemes") or [])]
+        if "http" in schemes or "https" in schemes:
+            return True
+    return False
+
+
+def _is_chromium_bundle(app_path: str) -> bool:
+    """맥 앱이 크로미움 계열 브라우저인지 짐작한다.
+
+    크로미움 브라우저는 자기 이름을 딴 'XXX Framework.framework' 를 담고 있다.
+    다만 Electron 으로 만든 앱(메신저, 편집기 등)도 같은 모양이라 이것만으로는
+    구분되지 않는다. Electron 은 브라우저가 아니므로 따로 걸러낸다.
     """
     fw = os.path.join(app_path, "Contents", "Frameworks")
     if not os.path.isdir(fw):
         return False
     try:
-        return any(n.endswith("Framework.framework") for n in os.listdir(fw))
+        names = os.listdir(fw)
     except OSError:
         return False
+
+    if any(n.startswith("Electron Framework") for n in names):
+        return False
+    return any(n.endswith("Framework.framework") for n in names)
 
 
 def discover_browsers() -> list[dict]:
@@ -222,18 +256,16 @@ def discover_browsers() -> list[dict]:
                 if not entry.endswith(".app"):
                     continue
                 app = os.path.join(d, entry)
+                plist = _read_plist(app)
+                # http·https 를 여는 앱으로 등록된 것만 브라우저로 본다.
+                # 이 조건이 없으면 엑셀이나 메신저처럼 크로미움을 품고 있을 뿐인
+                # 앱까지 브라우저로 잡힌다.
+                if not handles_web_urls(plist):
+                    continue
                 exe = _mac_app_executable(app)
                 if not exe:
                     continue
-                chromium = _is_chromium_bundle(app)
-                # 브라우저로 보이는 앱만 목록에 올린다
-                low = entry.lower()
-                looks_browser = chromium or any(
-                    k in low for k in ("browser", "chrome", "chromium", "edge",
-                                       "brave", "arc", "safari", "firefox",
-                                       "vivaldi", "opera", "whale", "aside"))
-                if looks_browser:
-                    add(entry[:-4], exe, chromium)
+                add(entry[:-4], exe, _is_chromium_bundle(app))
     elif sys.platform.startswith("win"):
         for path in WIN_CANDIDATES:
             add(os.path.basename(path), path, True)

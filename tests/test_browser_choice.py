@@ -28,6 +28,96 @@ from tests.fake_login_site import start                        # noqa: E402
 D = date(2026, 9, 20)
 
 
+class TestMacAppFiltering(unittest.TestCase):
+    """맥 앱 가운데 '진짜 브라우저' 만 골라내는지.
+
+    크로미움을 품고 있다는 이유만으로 고르면 Electron 으로 만든 앱(메신저,
+    편집기)과 오피스 앱까지 브라우저로 잡힌다. http·https 를 여는 앱으로
+    등록돼 있는지를 기준으로 삼는다.
+    """
+
+    def setUp(self):
+        import plistlib
+        self.root = tempfile.mkdtemp()
+        self._orig_dirs = BS.MAC_APP_DIRS
+        self._orig_platform = sys.platform
+        BS.MAC_APP_DIRS = [self.root]
+
+        def make(name, *, schemes=None, frameworks=()):
+            app = os.path.join(self.root, name + ".app")
+            macos = os.path.join(app, "Contents", "MacOS")
+            os.makedirs(macos, exist_ok=True)
+            exe = os.path.join(macos, name)
+            with open(exe, "w") as f:
+                f.write("#!/bin/sh\n")
+            os.chmod(exe, 0o755)
+            info = {"CFBundleExecutable": name}
+            if schemes:
+                info["CFBundleURLTypes"] = [{"CFBundleURLSchemes": schemes}]
+            with open(os.path.join(app, "Contents", "Info.plist"), "wb") as f:
+                plistlib.dump(info, f)
+            for fw in frameworks:
+                os.makedirs(os.path.join(app, "Contents", "Frameworks", fw),
+                            exist_ok=True)
+
+        make("Google Chrome", schemes=["http", "https"],
+             frameworks=["Google Chrome Framework.framework"])
+        make("Aside", schemes=["http", "https"],
+             frameworks=["Chromium Framework.framework"])
+        make("Safari", schemes=["http", "https"])
+        make("Claude", schemes=["claude"],
+             frameworks=["Electron Framework.framework"])
+        make("Visual Studio Code", schemes=["vscode"],
+             frameworks=["Electron Framework.framework"])
+        make("Microsoft Excel", frameworks=["MicrosoftOffice.framework"])
+        make("iMovie", frameworks=["iMovieFramework.framework"])
+
+    def tearDown(self):
+        BS.MAC_APP_DIRS = self._orig_dirs
+        sys.platform = self._orig_platform
+        shutil.rmtree(self.root, ignore_errors=True)
+
+    def _names(self) -> set:
+        sys.platform = "darwin"
+        try:
+            return {b["name"] for b in BS.discover_browsers()}
+        finally:
+            sys.platform = self._orig_platform
+
+    def test_real_browsers_are_found(self):
+        names = self._names()
+        for expected in ("Google Chrome", "Aside", "Safari"):
+            self.assertIn(expected, names)
+
+    def test_electron_apps_are_excluded(self):
+        """Electron 앱은 크로미움을 품고 있지만 브라우저가 아니다."""
+        names = self._names()
+        self.assertNotIn("Claude", names)
+        self.assertNotIn("Visual Studio Code", names)
+
+    def test_office_and_media_apps_are_excluded(self):
+        names = self._names()
+        self.assertNotIn("Microsoft Excel", names)
+        self.assertNotIn("iMovie", names)
+
+    def test_chromium_flag(self):
+        sys.platform = "darwin"
+        try:
+            flags = {b["name"]: b["chromium"] for b in BS.discover_browsers()}
+        finally:
+            sys.platform = self._orig_platform
+        self.assertTrue(flags.get("Aside"))
+        self.assertTrue(flags.get("Google Chrome"))
+        self.assertFalse(flags.get("Safari"))    # 웹킷이라 크로미움이 아니다
+
+    def test_handles_web_urls(self):
+        self.assertTrue(BS.handles_web_urls(
+            {"CFBundleURLTypes": [{"CFBundleURLSchemes": ["http", "https"]}]}))
+        self.assertFalse(BS.handles_web_urls(
+            {"CFBundleURLTypes": [{"CFBundleURLSchemes": ["vscode"]}]}))
+        self.assertFalse(BS.handles_web_urls({}))
+
+
 class TestBrowserDiscovery(unittest.TestCase):
     def test_discover_returns_shape(self):
         for b in BS.discover_browsers():
