@@ -8,6 +8,17 @@ Overpass API는 무료이고 키가 필요 없다.
     python3 scripts/fetch_golf_courses.py
     python3 scripts/fetch_golf_courses.py --reverse-geocode   # 시도 정보 보강 (느림)
     python3 scripts/fetch_golf_courses.py --merge             # 기존 별칭을 보존하며 갱신
+    python3 scripts/fetch_golf_courses.py --source nominatim  # Overpass 가 막힌 망에서
+
+수집 경로는 두 가지다.
+
+  overpass  : 한 번의 질의로 전국 golf_course 를 통째로 받는다. 가장 정확하고 빠르다.
+  nominatim : Overpass 가 막힌 망에서 쓰는 우회로. 전국을 격자로 나누어
+              "[golf_course]" 범주 검색을 격자마다 돌린다. 한 번에 50건까지만
+              돌려주므로 50건이 꽉 찬 칸은 네 칸으로 쪼개어 다시 본다.
+              요청이 수백 건이 되므로 1.2초 간격을 지킨다 (Nominatim 이용 정책).
+
+기본값(auto)은 Overpass 를 먼저 시도하고, 실패하면 Nominatim 격자로 넘어간다.
 
 주의: 이 스크립트는 인터넷 연결이 필요하다. 회사망이나 해외 IP에서 막히면
 국내 PC에서 실행하면 된다.
@@ -47,7 +58,7 @@ area["ISO3166-1"="KR"][admin_level=2]->.kr;
 out center tags;
 """
 
-USER_AGENT = "golf-finder/0.1 (personal use)"
+USER_AGENT = "golf-finder/0.1 (+https://github.com/kido-15/dk)"
 
 # OSM 주소 태그에 한자/영문 시도명이 섞여 들어오는 경우가 있어 표준 표기로 정리한다.
 REGION_ALIASES = {
@@ -71,16 +82,33 @@ REGION_ALIASES = {
 }
 
 
-def normalize_region(value: str) -> str:
+# OSM 은 전라남도와 광주광역시를 "전남광주통합특별시" 라는 한 이름으로 적어 둔다.
+# 그대로 두면 두 시도가 한 덩어리가 되고, 낱말 포함으로 풀면 전남 골프장이
+# 전부 "광주" 가 된다(실제로 78곳이 그렇게 잘못 붙었다).
+# 아래 단계(시·군·구)를 보고 가른다 — 광주광역시는 자치구(○○구)로 나뉘고
+# 전라남도는 시·군으로 나뉜다.
+MERGED_REGION_NAMES = {"전남광주통합특별시"}
+
+
+def normalize_region(value: str, sub: str = "") -> str:
+    """시도명을 표준 표기로. sub 는 그 아래 단계(시·군·구) 이름."""
     if not value:
         return ""
     v = value.strip()
+
+    if v in MERGED_REGION_NAMES:
+        s = (sub or "").strip()
+        if s in ("광주", "광주시", "광주광역시") or s.endswith("구"):
+            return "광주"
+        return "전남"
+
     if v in REGION_ALIASES:
         return REGION_ALIASES[v]
     low = v.lower()
     if low in REGION_ALIASES:
         return REGION_ALIASES[low]
-    for key, std in REGION_ALIASES.items():
+    # 긴 이름부터 본다. 짧은 이름이 긴 이름 안에 우연히 들어 있는 경우를 피한다.
+    for key, std in sorted(REGION_ALIASES.items(), key=lambda kv: -len(kv[0])):
         if key and len(key) >= 2 and key in v:
             return std
     return v
@@ -111,9 +139,202 @@ def fetch_overpass() -> list[dict]:
             last_error = exc
             print(f"    실패: {exc}")
             time.sleep(2)
-    raise SystemExit(
-        f"Overpass API 조회에 모두 실패했습니다. 마지막 오류: {last_error}\n"
-        "인터넷 연결(특히 회사망 방화벽)을 확인한 뒤 다시 실행해 주세요."
+    raise RuntimeError(
+        f"Overpass API 조회에 모두 실패했습니다. 마지막 오류: {last_error}"
+    )
+
+
+# --------------------------------------------------------------------------
+# Nominatim 격자 수집 — Overpass 가 막힌 망에서 쓰는 우회로
+# --------------------------------------------------------------------------
+
+NOMINATIM_SEARCH = "https://nominatim.openstreetmap.org/search"
+
+# 남한 육지를 넉넉히 덮는 범위. 바다 칸은 0건으로 금방 끝난다.
+KOREA_SCAN_BBOX = (33.0, 125.6, 38.7, 129.8)   # (min_lat, min_lon, max_lat, max_lon)
+CELL_DEG = 0.5            # 처음 격자 한 칸의 크기
+MIN_CELL_DEG = 0.0625     # 이보다 더 잘게 쪼개지 않는다
+PAGE_LIMIT = 50           # Nominatim 이 한 번에 돌려주는 최대 건수
+CAP_HINT = 45             # 이만큼 차면 잘린 것으로 보고 칸을 쪼갠다
+NOMINATIM_INTERVAL = 1.2  # 이용 정책상 초당 1회. 여유를 둔다.
+
+# leisure=golf_course 로 태깅돼 있지만 정규 코스가 아닌 것들.
+# 이름만 보고 지우면 진짜 골프장을 잃을 수 있어 확실한 낱말만 쓴다.
+PRACTICE_WORDS = ("연습장", "연습", "스크린", "퍼팅", "파크골프", "골프타운", "practice",
+                  "driving range", "screen")
+
+_last_call = 0.0
+
+
+def _nominatim(**params):
+    """Nominatim 한 번 호출. 호출 간격을 강제로 지킨다."""
+    global _last_call
+    wait = NOMINATIM_INTERVAL - (time.time() - _last_call)
+    if wait > 0:
+        time.sleep(wait)
+    _last_call = time.time()
+
+    params.setdefault("format", "jsonv2")
+    url = NOMINATIM_SEARCH + "?" + urllib.parse.urlencode(params)
+    req = urllib.request.Request(url, headers={"User-Agent": USER_AGENT})
+    with urllib.request.urlopen(req, timeout=60) as resp:
+        return json.loads(resp.read().decode("utf-8"))
+
+
+# 이름이 딱 이것뿐이면 스크린골프 매장이다. "골프존카운티 ○○" 같은 실제
+# 골프장과 섞이지 않도록 완전 일치로만 본다.
+PRACTICE_EXACT = {"골프존", "골프존파크", "골프존파크 ", "kakaovx", "프렌즈스크린"}
+
+
+def _is_practice(name: str, extratags: dict) -> bool:
+    golf_tag = (extratags.get("golf") or "").lower()
+    if golf_tag in ("driving_range", "practice", "pitch_and_putt"):
+        return True
+    low = (name or "").strip().lower()
+    if low in {w.strip().lower() for w in PRACTICE_EXACT}:
+        return True
+    return any(w in low for w in PRACTICE_WORDS)
+
+
+def fetch_nominatim_grid(stats: dict | None = None) -> list[dict]:
+    """전국을 격자로 훑어 leisure=golf_course 를 모은다.
+
+    Nominatim 은 한 번에 50건까지만 돌려주므로, 꽉 찬 칸은 네 칸으로 쪼개어
+    다시 본다. 같은 골프장이 이웃 칸에도 걸리므로 osm_type+osm_id 로 거른다.
+    """
+    stats = stats if stats is not None else {}
+    stats.setdefault("requests", 0)
+    stats.setdefault("cells", 0)
+    stats.setdefault("split", 0)
+    stats.setdefault("errors", 0)
+    stats.setdefault("practice_skipped", 0)
+
+    found: dict[str, dict] = {}
+    min_lat, min_lon, max_lat, max_lon = KOREA_SCAN_BBOX
+
+    queue: list[tuple[float, float, float, float]] = []
+    lat = min_lat
+    while lat < max_lat:
+        lon = min_lon
+        while lon < max_lon:
+            queue.append((lat, lon, min(lat + CELL_DEG, max_lat),
+                          min(lon + CELL_DEG, max_lon)))
+            lon += CELL_DEG
+        lat += CELL_DEG
+
+    print(f"  격자 {len(queue)}칸으로 시작합니다 "
+          f"(한 칸 {CELL_DEG}도, 요청 간격 {NOMINATIM_INTERVAL}초)")
+
+    while queue:
+        la, lo, LA, LO = queue.pop(0)
+        viewbox = f"{lo},{LA},{LO},{la}"          # left,top,right,bottom
+        try:
+            res = _nominatim(
+                q="[golf_course]",
+                viewbox=viewbox,
+                bounded=1,
+                limit=PAGE_LIMIT,
+                addressdetails=1,
+                extratags=1,
+                namedetails=1,
+                countrycodes="kr",      # 대마도 등 이웃 나라 골프장이 섞이는 것을 막는다
+                **{"accept-language": "ko"},
+            )
+        except Exception as exc:
+            stats["errors"] += 1
+            stats["requests"] += 1
+            print(f"    실패 {viewbox}: {exc}")
+            continue
+
+        stats["requests"] += 1
+        stats["cells"] += 1
+
+        for rec in res:
+            if rec.get("type") != "golf_course":
+                continue
+            key = f"{rec.get('osm_type')}-{rec.get('osm_id')}"
+            if key not in found:
+                found[key] = rec
+
+        if len(res) >= CAP_HINT and (LA - la) > MIN_CELL_DEG:
+            # 잘렸다고 보고 네 칸으로 쪼갠다
+            stats["split"] += 1
+            mid_lat, mid_lon = (la + LA) / 2, (lo + LO) / 2
+            queue.extend([
+                (la, lo, mid_lat, mid_lon),
+                (la, mid_lon, mid_lat, LO),
+                (mid_lat, lo, LA, mid_lon),
+                (mid_lat, mid_lon, LA, LO),
+            ])
+
+        if stats["cells"] % 25 == 0:
+            print(f"    {stats['cells']}칸 조회 / 대기 {len(queue)}칸 "
+                  f"/ 누적 {len(found)}곳")
+
+    print(f"  격자 조회 끝: 요청 {stats['requests']}건, "
+          f"쪼갠 칸 {stats['split']}개, 오류 {stats['errors']}건")
+    return list(found.values())
+
+
+def nominatim_to_course(rec: dict, stats: dict | None = None) -> Course | None:
+    """Nominatim 검색 결과 한 건을 Course 로 바꾼다."""
+    names = rec.get("namedetails") or {}
+    extra = rec.get("extratags") or {}
+    name = (names.get("name:ko") or names.get("name") or rec.get("name") or "").strip()
+    if not name:
+        return None
+
+    try:
+        lat, lon = float(rec["lat"]), float(rec["lon"])
+    except (KeyError, TypeError, ValueError):
+        return None
+    if not in_korea(lat, lon):
+        return None
+
+    if _is_practice(name, extra):
+        if stats is not None:
+            stats["practice_skipped"] = stats.get("practice_skipped", 0) + 1
+        return None
+
+    addr = rec.get("address") or {}
+    if (addr.get("country_code") or "kr").lower() != "kr":
+        return None                      # 이웃 나라(대마도 등) 결과는 버린다
+    region = normalize_region(
+        addr.get("province") or addr.get("state") or addr.get("city") or "",
+        addr.get("city") or addr.get("county") or addr.get("borough") or "")
+    address = " ".join(
+        p for p in [
+            addr.get("province", "") or addr.get("state", ""),
+            addr.get("city", "") or addr.get("county", ""),
+            addr.get("town", "") or addr.get("village", "") or addr.get("borough", ""),
+            addr.get("road", ""),
+        ] if p
+    ).strip()
+
+    holes = None
+    raw_holes = extra.get("golf:holes") or extra.get("holes") or ""
+    if str(raw_holes).strip().isdigit():
+        holes = int(raw_holes)
+
+    aliases = []
+    for key in ("name:en", "alt_name", "official_name", "short_name", "name"):
+        val = (names.get(key) or "").strip()
+        if val and val != name and val not in aliases:
+            aliases.append(val)
+
+    return Course(
+        course_id=f"osm-{rec.get('osm_type', 'x')}-{rec.get('osm_id')}",
+        name=name,
+        lat=round(lat, 6),
+        lon=round(lon, 6),
+        region=region,
+        address=address,
+        holes=holes,
+        phone=(extra.get("phone") or extra.get("contact:phone") or "").strip(),
+        homepage=(extra.get("website") or extra.get("contact:website")
+                  or extra.get("url") or "").strip(),
+        source="osm-nominatim",
+        aliases=aliases,
     )
 
 
@@ -204,16 +425,41 @@ def main() -> int:
         action="store_true",
         help="기존 CSV에 직접 추가한 골프장과 별칭(aliases)을 보존한다",
     )
+    ap.add_argument(
+        "--source",
+        choices=["auto", "overpass", "nominatim"],
+        default="auto",
+        help="auto=Overpass 먼저 시도하고 막히면 Nominatim 격자로 (기본값)",
+    )
     args = ap.parse_args()
 
+    stats: dict = {}
     print("OpenStreetMap에서 국내 골프장을 조회합니다...")
-    elements = fetch_overpass()
-    print(f"  {len(elements)}건 수신")
+
+    elements: list[dict] = []
+    used = ""
+    if args.source in ("auto", "overpass"):
+        try:
+            elements = fetch_overpass()
+            used = "overpass"
+        except RuntimeError as exc:
+            print(f"  {exc}")
+            if args.source == "overpass":
+                return 1
+            print("  → Nominatim 격자 수집으로 넘어갑니다 (느리지만 같은 OSM 데이터입니다)")
+    if not elements:
+        elements = fetch_nominatim_grid(stats)
+        used = "nominatim"
+
+    print(f"  {len(elements)}건 수신 (경로: {used})")
+
+    to_course = element_to_course if used == "overpass" else (
+        lambda el: nominatim_to_course(el, stats))
 
     courses: list[Course] = []
     seen_names: dict[str, Course] = {}
     for el in elements:
-        c = element_to_course(el)
+        c = to_course(el)
         if c is None:
             continue
         # 같은 골프장이 way와 relation으로 중복되는 경우가 있어 이름+좌표로 중복 제거
@@ -224,6 +470,8 @@ def main() -> int:
         courses.append(c)
 
     print(f"  이름과 좌표가 있는 골프장 {len(courses)}곳")
+    if stats.get("practice_skipped"):
+        print(f"  (연습장·스크린 등으로 보여 제외한 것 {stats['practice_skipped']}곳)")
 
     if args.reverse_geocode:
         blanks = [c for c in courses if not c.region]
