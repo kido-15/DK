@@ -22,6 +22,7 @@ for _v in ("HTTP_PROXY", "HTTPS_PROXY", "http_proxy", "https_proxy"):
 os.environ["NO_PROXY"] = "127.0.0.1,localhost"
 
 from golf import htmlsel                                        # noqa: E402
+from golf.sources.csv_source import CsvSource                   # noqa: E402
 from golf.sources.web_source import WebSource                   # noqa: E402
 from tests.fake_paged_site import PER_PAGE, TOTAL, start        # noqa: E402
 
@@ -187,12 +188,49 @@ class TestShiftingPages(unittest.TestCase):
         self.assertGreater(src.last_stats["duplicates"], 0,
                            "겹친 행이 있었는데 세지 않았다")
 
+    def test_duplicates_are_reported_per_date(self):
+        """합계만 있으면 어느 날짜에서 페이지가 흔들렸는지 알 수 없다."""
+        src = WebSource(config_for(self.base, "/shift"))
+        src.fetch([DAY])
+        by_date = src.last_stats["duplicates_by_date"]
+        self.assertEqual(sum(by_date.values()), src.last_stats["duplicates"])
+        self.assertIn(DAY, by_date)
+
     def test_clamped_site_still_stops(self):
         """바로 앞 페이지와 같은 경우는 여전히 멈춘다. 그게 진짜 끝 신호다."""
         src = WebSource(config_for(self.base, "/clamp"))
         rows = src.fetch([DAY])
         self.assertTrue(src.last_stats["stopped"])
         self.assertEqual(len({t.raw["row_id"] for t in rows}), TOTAL)
+
+
+class TestCsvKeepsRowId(unittest.TestCase):
+    """매물 번호를 저장해 두어야 나중에 확인할 수 있다."""
+
+    @classmethod
+    def setUpClass(cls):
+        cls.srv, cls.base = start()
+
+    @classmethod
+    def tearDownClass(cls):
+        cls.srv.shutdown()
+
+    def test_row_id_survives_a_round_trip(self):
+        import csv as _csv
+        import tempfile
+
+        rows = WebSource(config_for(self.base, "/list")).fetch([DAY])
+        with tempfile.TemporaryDirectory() as tmp:
+            path = os.path.join(tmp, "out.csv")
+            CsvSource.write(path, rows)
+            with open(path, encoding="utf-8") as f:
+                saved = list(_csv.DictReader(f))
+
+        self.assertIn("row_id", saved[0])
+        ids = [r["row_id"] for r in saved]
+        self.assertTrue(all(ids), "매물 번호가 빈 채로 저장됐다")
+        self.assertEqual(len(ids), len(set(ids)),
+                         "같은 매물이 두 번 저장됐는데 파일만 보고는 알 수 없다")
 
 
 class TestYearlessDates(unittest.TestCase):

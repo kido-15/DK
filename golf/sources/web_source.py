@@ -381,6 +381,7 @@ class WebSource:
 
         requests_made = 0
         duplicates = 0
+        dups_by_date: dict = {}
         errors: list[str] = []
 
         stopped: list[str] = []
@@ -451,6 +452,7 @@ class WebSource:
                     if rid:
                         if rid in seen_rows:
                             duplicates += 1
+                            dups_by_date[d] = dups_by_date.get(d, 0) + 1
                             continue
                         seen_rows.add(rid)
                     fresh.append(t)
@@ -467,6 +469,9 @@ class WebSource:
             "errors": errors,
             "stopped": stopped,
             "duplicates": duplicates,
+            # 날짜별로도 남긴다. 합계만 있으면 어느 날짜에서 페이지가 많이
+            # 흔들렸는지 알 수 없어, 보고서를 쓸 때 출력에서 역산해야 한다.
+            "duplicates_by_date": dups_by_date,
         }
         if errors and not results:
             self.last_error = errors[0]

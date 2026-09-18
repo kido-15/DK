@@ -71,8 +71,10 @@ class CsvSource:
     def write(path: str, tee_times: list[TeeTime]) -> int:
         """티타임 목록을 CSV로 저장한다 (크롤링 결과 보관용)."""
         os.makedirs(os.path.dirname(os.path.abspath(path)), exist_ok=True)
+        # row_id 는 그 사이트가 이 매물에 붙인 번호다. 중복을 이것으로 걸러 내므로,
+        # 저장해 두지 않으면 나중에 제대로 걸렀는지 확인할 방법이 없다.
         cols = ["course_name", "play_date", "tee_time", "green_fee",
-                "source", "booking_url", "slots", "hole_info"]
+                "source", "booking_url", "slots", "hole_info", "row_id"]
         with open(path, "w", newline="", encoding="utf-8") as f:
             w = csv.DictWriter(f, fieldnames=cols)
             w.writeheader()
@@ -86,5 +88,6 @@ class CsvSource:
                     "booking_url": t.booking_url,
                     "slots": t.slots if t.slots is not None else "",
                     "hole_info": t.hole_info,
+                    "row_id": (t.raw or {}).get("row_id", ""),
                 })
         return len(tee_times)

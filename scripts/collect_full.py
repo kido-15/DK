@@ -170,10 +170,13 @@ def main() -> int:
               f"{', '.join(f'{k} {v}건' for k, v in got.most_common(5))}")
         print("  목록이 아직 안 바뀐 채로 읽혔을 수 있습니다. 확인이 필요합니다.")
 
+    by_date_dups = stats.get("duplicates_by_date") or {}
     print("\n  날짜별")
     for d in dates:
         n = sum(1 for t in rows if t.play_date == d)
-        print(f"    {d}   {n:6,d}건")
+        dup = by_date_dups.get(d, 0)
+        tail = f"   (겹쳐 들어온 {dup:,}건 제외)" if dup else ""
+        print(f"    {d}   {n:6,d}건{tail}")
 
     fees = [t.green_fee for t in rows if t.green_fee >= 0]
     if fees:
