@@ -15,7 +15,7 @@ import difflib
 import os
 from typing import Iterable, Optional
 
-from .models import Course, normalize_course_name
+from .models import Course, name_variants, normalize_course_name
 
 DEFAULT_PATH = os.path.join(
     os.path.dirname(os.path.dirname(os.path.abspath(__file__))),
@@ -102,21 +102,31 @@ class CourseBook:
     def match(self, raw_name: str) -> Optional[Course]:
         """예약 사이트가 준 이름으로 골프장을 찾는다.
 
-        1) 정규화 후 완전 일치
+        예약 사이트는 이름 뒤에 판매 조건을 붙여 적는다("가평(비공개)").
+        골프장 DB 에는 그런 말이 없으므로, 꼬리표를 뗀 이름까지 후보로 본다.
+        후보는 models.name_variants 가 만든다.
+
+        1) 모든 후보로 완전 일치
         2) 한쪽이 다른 쪽을 포함 (가장 긴 후보 우선)
         3) 유사도 기반 근사 일치
+
+        확실한 방법을 **모든 후보에 대해** 먼저 써 본 뒤 다음 단계로 간다.
+        그러지 않으면 첫 후보의 어림짐작이 뒤 후보의 정확한 일치를 이긴다.
         """
-        key = normalize_course_name(raw_name)
-        if not key:
+        keys = name_variants(raw_name)
+        if not keys:
             return None
 
-        hit = self._index.get(key)
-        if hit:
-            return hit
+        for key in keys:                       # 1) 완전 일치
+            hit = self._index.get(key)
+            if hit:
+                return hit
 
-        # 포함 관계. "남서울" 같은 짧은 키가 여러 곳에 걸리는 것을 막기 위해
-        # 3글자 이상일 때만 시도하고, 후보가 여럿이면 가장 긴 것을 고른다.
-        if len(key) >= 3:
+        for key in keys:                       # 2) 포함 관계
+            # "남서울" 같은 짧은 키가 여러 곳에 걸리는 것을 막기 위해
+            # 3글자 이상일 때만 시도하고, 후보가 여럿이면 가장 긴 것을 고른다.
+            if len(key) < 3:
+                continue
             contains = [
                 (k, c) for k, c in self._index.items()
                 if len(k) >= 3 and (k in key or key in k)
@@ -130,9 +140,11 @@ class CourseBook:
                 if len(top) == 1:
                     return top[0]
 
-        close = difflib.get_close_matches(key, self._index.keys(), n=1, cutoff=FUZZY_THRESHOLD)
-        if close:
-            return self._index[close[0]]
+        for key in keys:                       # 3) 근사 일치
+            close = difflib.get_close_matches(
+                key, self._index.keys(), n=1, cutoff=FUZZY_THRESHOLD)
+            if close:
+                return self._index[close[0]]
 
         self._unmatched[raw_name] = self._unmatched.get(raw_name, 0) + 1
         return None

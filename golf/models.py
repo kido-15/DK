@@ -84,6 +84,68 @@ def normalize_course_name(name: str) -> str:
     return s
 
 
+# 예약 사이트가 이름 뒤에 붙이는 **판매 조건** 표시들.
+#
+# 골프장 이름의 일부가 아니라 "이 매물이 어떤 건인지" 를 말하는 꼬리표다.
+# 골프장 DB(공식 이름)에는 이런 말이 없으므로, 떼어내지 않으면 영영 못 찾는다.
+#
+#   가평(비공개)   → 가평          비공개는 골프장 이름이 아니다
+#   신안(병행)     → 신안          회원제·대중제 병행 운영이라는 뜻
+#   글렌로스-퍼9   → 글렌로스      9홀 코스라는 뜻
+#
+# 반대로 (레이크)·(밸리) 같은 **코스 구분**은 골프장이 실제로 나눠 부르는
+# 이름이므로 남겨 둔다. 그래서 괄호를 통째로 지우지 않고 목록으로 가린다.
+_BOOKING_QUALIFIERS = re.compile(
+    r"(비공개|병행|대중제|회원제|퍼블릭|퍼9|9홀|조인|단체|특가|마감임박|당일)",
+    re.IGNORECASE,
+)
+
+# "(구.큐로cc)" 처럼 괄호 안에 적어 주는 옛 이름.
+# 골프장 DB 가 아직 옛 이름으로 들고 있을 수 있어, 따로 뽑아 후보로 쓴다.
+_FORMER_NAME = re.compile(r"[(\[]\s*구[.\s]\s*([^)\]]+)[)\]]")
+
+# 예약 사이트가 앞에 붙이는 운영사 이름.
+_OPERATOR_PREFIX = re.compile(r"^(골프존카운티|골프존|sk|한화|대명|소노|아난티)\s*", re.IGNORECASE)
+
+
+def name_variants(raw: str) -> list[str]:
+    """그 이름을 가리킬 법한 정규화 키들. 확실한 것부터.
+
+    예약 사이트 이름과 골프장 DB 이름은 같은 곳을 다르게 적는다. 하나만 보고
+    포기하면 좌표를 못 찾고, 좌표가 없으면 이동시간을 못 재서 **검색 결과에서
+    통째로 빠진다.** 조용히 사라지는 쪽이라 후보를 넉넉히 만들어 둔다.
+
+        골프존 송도(구.오렌지듄스)
+          → ['골프존송도구오렌지듄스', '골프존송도', '오렌지듄스', '송도']
+    """
+    out: list[str] = []
+
+    def add(value: str) -> None:
+        key = normalize_course_name(value)
+        if key and key not in out:
+            out.append(key)
+
+    raw = (raw or "").strip()
+    if not raw:
+        return []
+
+    add(raw)                                   # 있는 그대로
+
+    former = _FORMER_NAME.search(raw)
+    base = _FORMER_NAME.sub(" ", raw)          # 옛 이름 표기를 떼어낸 나머지
+
+    stripped = _BOOKING_QUALIFIERS.sub(" ", base)
+    add(stripped)                              # 판매 조건 꼬리표를 뗀 것
+
+    if former:
+        add(former.group(1))                   # 옛 이름 그 자체
+
+    without_op = _OPERATOR_PREFIX.sub("", stripped)
+    add(without_op)                            # 운영사 이름을 뗀 것
+
+    return out
+
+
 # ---------------------------------------------------------------------------
 # 티타임 (예약 가능 슬롯)
 # ---------------------------------------------------------------------------
