@@ -26,6 +26,15 @@ LIST_HINTS = [
 DATE_ATTRS = ["data-date", "data-day", "data-value", "data-ymd", "data-time",
               "data-playdate", "value", "id", "rel", "title", "aria-label"]
 
+# 값 안에 날짜가 "섞여" 있는 속성들. 값 전체가 날짜인 DATE_ATTRS 와 달리 부분 일치로 찾는다.
+#
+# 골팡이 이런 형태다:
+#     <li onclick="selectQuick('1','2026-09-20','16')">09/20(일)</li>
+#
+# data-date 같은 속성은 없고 날짜가 함수 인자로만 들어 있어서, 정확히 일치하는
+# 속성만 찾으면 이런 사이트의 날짜는 영영 못 고른다.
+DATE_IN_ATTRS = ["onclick", "href", "data-params", "data-args", "onchange", "ng-click"]
+
 
 @dataclass
 class ClickResult:
@@ -163,8 +172,10 @@ def select_date(page, target: date, *, verbose: bool = False) -> ClickResult:
     before = _list_fingerprint(page)
     attempts: list[str] = []
 
-    # 1) 속성에 날짜가 그대로 들어 있는 요소 — 가장 확실하다
-    for token in (f"{target:%Y-%m-%d}", f"{target:%Y%m%d}", f"{target:%Y.%m.%d}"):
+    exact_tokens = (f"{target:%Y-%m-%d}", f"{target:%Y%m%d}", f"{target:%Y.%m.%d}")
+
+    # 1) 속성 값이 곧 날짜인 요소 — 가장 확실하다
+    for token in exact_tokens:
         for attr in DATE_ATTRS:
             result = _try_click(page, page.locator(f'[{attr}="{token}"]'),
                                 f'{attr}="{token}"', before)
@@ -174,7 +185,19 @@ def select_date(page, target: date, *, verbose: bool = False) -> ClickResult:
             if result.clicked:
                 before = _list_fingerprint(page)
 
-    # 2) 날짜 표기 텍스트를 가진 누를 수 있는 요소
+    # 2) 속성 값 안에 날짜가 섞여 있는 요소
+    #    onclick="selectQuick('1','2026-09-20','16')" 같은 형태가 여기에 걸린다
+    for token in exact_tokens:
+        for attr in DATE_IN_ATTRS:
+            result = _try_click(page, page.locator(f'[{attr}*="{token}"]'),
+                                f'{attr} 안의 "{token}"', before)
+            attempts.append(result.reason)
+            if result.ok:
+                return result
+            if result.clicked:
+                before = _list_fingerprint(page)
+
+    # 3) 날짜 표기 텍스트를 가진 누를 수 있는 요소
     clickable = "a, button, li, td, th, span[onclick], div[onclick], label"
     for token in date_tokens(target):
         try:
@@ -188,7 +211,7 @@ def select_date(page, target: date, *, verbose: bool = False) -> ClickResult:
         if result.clicked:
             before = _list_fingerprint(page)
 
-    # 3) 달력처럼 보이는 곳의 날짜 숫자
+    # 4) 달력처럼 보이는 곳의 날짜 숫자
     #    그냥 숫자를 누르면 엉뚱한 것을 누를 수 있어, 달력 영역 안에서만 찾는다.
     for scope in ("[class*=calendar]", "[class*=datepicker]", "[class*=date]",
                   "[id*=calendar]", "[class*=day]"):
@@ -207,7 +230,7 @@ def select_date(page, target: date, *, verbose: bool = False) -> ClickResult:
         if result.clicked:
             before = _list_fingerprint(page)
 
-    # 4) 드롭다운에 날짜가 있는 경우
+    # 5) 드롭다운에 날짜가 있는 경우
     for token in (f"{target:%Y%m%d}", f"{target:%Y-%m-%d}"):
         try:
             selects = page.locator("select")

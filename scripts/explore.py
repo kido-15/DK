@@ -123,6 +123,36 @@ def describe_date_controls(page, out: Report) -> None:
     out("=" * 68)
     found = False
 
+    # 날짜가 onclick 함수 인자로만 들어 있는 사이트가 있다 (골팡이 그렇다).
+    # 속성 이름만 보면 놓치므로 값 안에 날짜가 있는지도 본다.
+    for attr in ("onclick", "href", "data-params", "onchange"):
+        try:
+            loc = page.locator(f'[{attr}]')
+            n = loc.count()
+        except Exception:
+            continue
+        shown = 0
+        for i in range(min(n, 60)):
+            el = loc.nth(i)
+            try:
+                val = el.get_attribute(attr) or ""
+            except Exception:
+                continue
+            if not re.search(r"20\d{2}[-./]?\d{2}[-./]?\d{2}", val):
+                continue
+            if not shown:
+                out(f"\n  {attr} 값 안에 날짜가 들어 있는 요소")
+                found = True
+            try:
+                tag = el.evaluate("e => e.tagName")
+                text = re.sub(r"\s+", " ", el.inner_text(timeout=600) or "").strip()[:20]
+            except Exception:
+                tag, text = "?", ""
+            out(f"    <{tag}> 글자=\"{text}\"  {attr}={val[:70]}")
+            shown += 1
+            if shown >= 6:
+                break
+
     for attr in ("data-date", "data-day", "data-ymd", "data-value", "data-playdate"):
         try:
             loc = page.locator(f"[{attr}]")
@@ -174,9 +204,11 @@ def describe_date_controls(page, out: Report) -> None:
                     tag = el.evaluate("e => e.tagName")
                     text = re.sub(r"\s+", " ",
                                   el.inner_text(timeout=500) or "").strip()[:30]
-                    onclick = bool(el.get_attribute("onclick"))
-                    href = el.get_attribute("href") or ""
-                    out(f"    <{tag}> \"{text}\" onclick={onclick} href={href[:40]}")
+                    onclick = (el.get_attribute("onclick") or "")[:60]
+                    href = (el.get_attribute("href") or "")[:40]
+                    extra = f" onclick={onclick}" if onclick else ""
+                    extra += f" href={href}" if href else ""
+                    out(f"    <{tag}> \"{text}\"{extra or ' (클릭 핸들러 없음)'}")
                 except Exception:
                     pass
     except Exception:

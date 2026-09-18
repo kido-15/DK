@@ -69,6 +69,22 @@ TEXT_PAGE = """<!DOCTYPE html><html><head><meta charset="utf-8">
 __ROWS__
 </script></body></html>"""
 
+# 골팡 실제 구조: data-* 속성 없이 onclick 함수 인자에만 날짜가 들어간다.
+#     <li onclick="selectQuick('1','2026-09-20','16')">09/20(일)</li>
+ONCLICK_PAGE = """<!DOCTYPE html><html><head><meta charset="utf-8">
+<title>가짜부킹 - onclick형</title></head><body>
+<ul class="calendar">
+  <li class="date">09/18(금)</li>
+  <li class="date" onclick="pick('2026-09-20')" style="cursor:pointer">09/20(일)</li>
+  <li class="date" onclick="pick('2026-09-21')" style="cursor:pointer">09/21(월)</li>
+  <li class="date" onclick="pick('2026-09-22')" style="cursor:pointer">09/22(화)</li>
+</ul>
+<div id="result"><p class="empty">날짜를 선택해 주세요.</p></div>
+<script>var DATA = __DATA__;
+__ROWS__
+</script></body></html>"""
+
+
 # 날짜를 눌러도 목록이 그대로인 화면. 여기서 여러 날짜를 모으면
 # 같은 목록이 날짜만 바뀌어 중복 저장된다. 그래서 건너뛰어야 한다.
 STATIC_PAGE = """<!DOCTYPE html><html><head><meta charset="utf-8">
@@ -93,6 +109,7 @@ def _build(tpl: str) -> str:
 ROUTES = {
     "/tabs": _build(TABS_PAGE),
     "/text": _build(TEXT_PAGE),
+    "/onclick": _build(ONCLICK_PAGE),
     "/static": STATIC_PAGE,
 }
 

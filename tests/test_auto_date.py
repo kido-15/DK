@@ -113,6 +113,18 @@ class TestCollectDates(unittest.TestCase):
             names = {t.course_name for t in results[d].tee_times}
             self.assertEqual(names, EXPECTED[d], f"{d}: {results[d].reason}")
 
+    def test_onclick_only_dates(self):
+        """골팡 실제 구조: data-* 속성 없이 onclick 인자에만 날짜가 있다.
+
+            <li onclick="selectQuick('1','2026-09-20','16')">09/20(일)</li>
+
+        속성 값이 곧 날짜인 것만 찾으면 이런 사이트는 날짜를 영영 못 고른다.
+        """
+        results = self._collect("/onclick")
+        for d in DATES:
+            names = {t.course_name for t in results[d].tee_times}
+            self.assertEqual(names, EXPECTED[d], f"{d}: {results[d].reason}")
+
     def test_single_item_day_is_collected(self):
         """마지막 날짜는 티타임이 한 건뿐이다. 놓치면 안 된다."""
         results = self._collect("/tabs")
