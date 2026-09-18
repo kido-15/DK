@@ -15,6 +15,9 @@ data/golf/teetimes.csv
 data/golf/snapshots/
 data/golf/site_profiles.json
 data/golf/probe-*.txt
+data/golf/explore-*.txt
+data/golf/explore-*.png
+data/golf/explore-*.html
 crawl.log
 
 # 로그인 세션 — 절대 커밋하지 말 것.
