@@ -330,59 +330,19 @@ def detect_login_wall(html: str, root: Optional[htmlsel.Node] = None) -> bool:
 # ---------------------------------------------------------------------------
 
 
-def auto_extract(
-    html: str,
-    *,
-    course_name: str = "",
-    source_id: str,
-    play_date: Optional[date] = None,
-    base_url: str = "",
-    min_confidence: float = 0.35,
-    detect_names: Optional[bool] = None,
-) -> ExtractResult:
-    """페이지에서 티타임을 자동으로 뽑는다. 설정이 필요 없다.
+def _blocks_to_tee_times(nodes, *, course_name: str, source_id: str,
+                         play_date, base_url: str, detect_names: bool,
+                         count_skipped: bool = False):
+    """목록 항목들을 TeeTime 으로 바꾼다.
 
-    course_name 을 주면 그 골프장의 페이지로 보고 모든 티타임에 같은 이름을 붙인다
-    (개별 골프장 홈페이지에는 자기 이름이 안 적혀 있는 경우가 많다).
-
-    주지 않으면 여러 골프장을 모아 놓은 목록으로 보고 행마다 이름을 찾는다
-    (플랫폼 예약 사이트가 이 경우다).
+    count_skipped 를 주면 (티타임, 마감으로 걸러낸 수) 를 함께 돌려준다.
     """
-    if detect_names is None:
-        detect_names = not course_name
-    result = ExtractResult()
-    root = htmlsel.parse(html)
-
-    if detect_login_wall(html, root):
-        result.needs_login = True
-        result.reason = "로그인해야 목록이 보이는 페이지로 보입니다"
-        return result
-
-    blocks = find_repeating_blocks(root)
-    if not blocks:
-        result.reason = "반복되는 목록 구조를 찾지 못했습니다 (자바스크립트로 그려지는 화면일 수 있음)"
-        return result
-
-    sig, nodes = blocks[0]
-    raw_score = block_score(nodes)
-    # 점수를 0~1로 눌러 담는다. 5점 이상이면 확신한다고 본다.
-    result.confidence = min(raw_score / 5.0, 1.0)
-    result.block_selector = sig
-    result.block_count = len(nodes)
-
-    if result.confidence < min_confidence:
-        result.reason = (
-            f"목록 후보는 찾았지만({sig}, {len(nodes)}개) "
-            f"시각·금액이 충분히 보이지 않습니다"
-        )
-        return result
-
     tee_times: list[TeeTime] = []
-    skipped_unavailable = 0
+    skipped = 0
 
     for block in nodes:
         if is_unavailable(block):
-            skipped_unavailable += 1
+            skipped += 1
             continue
 
         t = extract_time(block)
@@ -412,6 +372,82 @@ def auto_extract(
                 raw={"block_text": block.text[:200]},
             )
         )
+
+    return (tee_times, skipped) if count_skipped else tee_times
+
+
+def auto_extract(
+    html: str,
+    *,
+    course_name: str = "",
+    source_id: str,
+    play_date: Optional[date] = None,
+    base_url: str = "",
+    min_confidence: float = 0.35,
+    detect_names: Optional[bool] = None,
+    known_selector: str = "",
+) -> ExtractResult:
+    """페이지에서 티타임을 자동으로 뽑는다. 설정이 필요 없다.
+
+    course_name 을 주면 그 골프장의 페이지로 보고 모든 티타임에 같은 이름을 붙인다
+    (개별 골프장 홈페이지에는 자기 이름이 안 적혀 있는 경우가 많다).
+
+    주지 않으면 여러 골프장을 모아 놓은 목록으로 보고 행마다 이름을 찾는다
+    (플랫폼 예약 사이트가 이 경우다).
+
+    known_selector 는 같은 사이트의 다른 날짜에서 이미 확인된 목록 구조다.
+    티타임이 한 건뿐인 날은 '반복' 으로 보이지 않아 그냥은 찾지 못하는데,
+    구조를 이미 아는 경우에는 그 한 건도 읽을 수 있다.
+    """
+    if detect_names is None:
+        detect_names = not course_name
+    result = ExtractResult()
+    root = htmlsel.parse(html)
+
+    if detect_login_wall(html, root):
+        result.needs_login = True
+        result.reason = "로그인해야 목록이 보이는 페이지로 보입니다"
+        return result
+
+    blocks = find_repeating_blocks(root)
+
+    # 반복으로 보이지 않아도, 구조를 이미 아는 사이트라면 그 구조로 읽어 본다.
+    # 그날 티타임이 한 건뿐인 경우가 여기에 해당한다.
+    if not blocks and known_selector:
+        nodes = root.select(known_selector)
+        if nodes:
+            result.block_selector = known_selector
+            result.block_count = len(nodes)
+            result.confidence = min(block_score(nodes) / 5.0, 1.0) or 0.5
+            tee_times = _blocks_to_tee_times(
+                nodes, course_name=course_name, source_id=source_id,
+                play_date=play_date, base_url=base_url, detect_names=detect_names)
+            result.tee_times = tee_times
+            result.reason = (f"이미 확인된 구조({known_selector})로 "
+                             f"{len(nodes)}개 항목 중 {len(tee_times)}건 추출")
+            return result
+
+    if not blocks:
+        result.reason = "반복되는 목록 구조를 찾지 못했습니다 (자바스크립트로 그려지는 화면일 수 있음)"
+        return result
+
+    sig, nodes = blocks[0]
+    raw_score = block_score(nodes)
+    # 점수를 0~1로 눌러 담는다. 5점 이상이면 확신한다고 본다.
+    result.confidence = min(raw_score / 5.0, 1.0)
+    result.block_selector = sig
+    result.block_count = len(nodes)
+
+    if result.confidence < min_confidence:
+        result.reason = (
+            f"목록 후보는 찾았지만({sig}, {len(nodes)}개) "
+            f"시각·금액이 충분히 보이지 않습니다"
+        )
+        return result
+
+    tee_times, skipped_unavailable = _blocks_to_tee_times(
+        nodes, course_name=course_name, source_id=source_id, play_date=play_date,
+        base_url=base_url, detect_names=detect_names, count_skipped=True)
 
     result.tee_times = tee_times
     parts = [f"{sig} 구조에서 {len(nodes)}개 항목 중 {len(tee_times)}건 추출"]

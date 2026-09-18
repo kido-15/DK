@@ -633,6 +633,9 @@ class BrowserResult:
     apis: list[CapturedApi] = field(default_factory=list)
     reason: str = ""
     page_title: str = ""
+    reason_prefix: str = ""          # 날짜를 어떻게 골랐는지
+    date_controls: list = field(default_factory=list)  # 날짜 고르는 부분 설명
+    block_selector: str = ""         # 목록으로 판단한 구조 (다음 날짜에 재사용)
 
 
 class BrowserSource:
@@ -807,6 +810,148 @@ class BrowserSource:
                     continue
             if not clicked:
                 break
+
+    # -- 날짜를 눌러 가며 여러 날 수집 --------------------------------------
+
+    def collect_dates(self, dates: list[date], *, search_text: str = "",
+                      on_progress=None) -> dict:
+        """브라우저를 한 번만 열고, 날짜를 차례로 눌러 가며 모은다.
+
+        날짜를 눌러야 목록이 바뀌는 사이트를 위한 것이다. 누른 뒤 목록이 실제로
+        달라졌는지 확인하고, 달라지지 않았으면 그 날짜는 건너뛴다. 확인하지 않고
+        모으면 같은 목록을 여러 날짜 것으로 저장하게 된다.
+
+        {날짜: BrowserResult} 를 돌려준다.
+        """
+        out: dict = {}
+        if not playwright_available():
+            for d in dates:
+                r = BrowserResult()
+                r.reason = INSTALL_HINT
+                out[d] = r
+            return out
+
+        from playwright.sync_api import sync_playwright
+        from .. import interact
+
+        try:
+            with sync_playwright() as p:
+                browser, context = open_context(
+                    p, site_id=self.id, headless=self.headless,
+                    executable_path=self.executable_path,
+                    use_session=self.use_session and not self.cdp_url,
+                    cdp_url=self.cdp_url)
+                page = (context.new_page() if self.cdp_url
+                        else (context.pages[0] if context.pages else context.new_page()))
+
+                captured: list = []
+
+                def on_response(resp):
+                    try:
+                        if _SKIP_URL.search(resp.url) or not resp.ok:
+                            return
+                        if "json" not in (resp.header_value("content-type") or "").lower():
+                            return
+                        captured.append((resp.url, resp.request.method, resp.json()))
+                    except Exception:
+                        pass
+
+                page.on("response", on_response)
+                page.goto(self._render(dates[0] if dates else None),
+                          wait_until="domcontentloaded", timeout=self.timeout_ms)
+                page.wait_for_timeout(self.wait_ms)
+
+                if search_text:
+                    interact.click_text(page, search_text)
+
+                known_selector = ""      # 앞선 날짜에서 확인된 목록 구조
+                for d in dates:
+                    captured.clear()
+                    result = BrowserResult()
+
+                    picked = interact.select_date(page, d)
+                    if not picked.ok:
+                        # 첫 날짜는 페이지를 연 그 상태가 이미 그 날짜일 수 있다.
+                        # 그 밖에는 날짜를 못 골랐으니 결과를 신뢰할 수 없다.
+                        if d != dates[0]:
+                            result.reason = picked.reason
+                            result.date_controls = interact.describe_date_controls(page)
+                            out[d] = result
+                            if on_progress:
+                                on_progress(d, result)
+                            continue
+                        result.reason_prefix = "날짜를 누르지 않고 첫 화면을 읽었습니다. "
+                    else:
+                        result.reason_prefix = picked.how + " → "
+
+                    if search_text:
+                        interact.click_text(page, search_text)
+                    interact.scroll_through(page, self.scrolls)
+                    if self.click_more:
+                        interact.load_more(page)
+
+                    html = page.content()
+                    self._fill_result(result, html, page.url, d, list(captured),
+                                      known_selector=known_selector)
+                    if result.block_selector:
+                        known_selector = result.block_selector
+                    out[d] = result
+                    if on_progress:
+                        on_progress(d, result)
+
+                if self.use_session and self.id:
+                    try:
+                        save_cookies(self.id, page.context.cookies())
+                    except Exception:
+                        pass
+                close_context(browser, context,
+                              attached=bool(self.cdp_url), page=page)
+        except Exception as exc:
+            for d in dates:
+                if d not in out:
+                    r = BrowserResult()
+                    r.reason = f"브라우저 실행 실패: {exc}"
+                    out[d] = r
+        return out
+
+    def _fill_result(self, result: "BrowserResult", html: str, url: str,
+                     play_date, captured: list, known_selector: str = "") -> None:
+        """받아 온 화면과 가로챈 JSON 에서 티타임을 뽑아 결과에 담는다.
+
+        known_selector 는 앞선 날짜에서 확인된 목록 구조다. 그날 티타임이 한
+        건뿐이면 '반복' 으로 보이지 않아 그냥은 못 찾으므로, 아는 구조를 쓴다.
+        """
+        for u, method, body in captured:
+            r = auto_extract_json(body, course_name=self.course_name,
+                                  source_id=self.id, play_date=play_date, base_url=u)
+            if r.tee_times:
+                keys = {}
+                for path, arr in _find_record_arrays(body):
+                    if path == r.block_selector:
+                        keys = _guess_json_keys(arr)
+                        break
+                result.apis.append(CapturedApi(u, method, body, len(r.tee_times),
+                                               r.block_selector, keys))
+
+        if result.apis:
+            best = max(result.apis, key=lambda a: a.tee_count)
+            r = auto_extract_json(best.body, course_name=self.course_name,
+                                  source_id=self.id, play_date=play_date,
+                                  base_url=best.url)
+            result.tee_times = r.tee_times
+            result.from_api = True
+            result.reason = (result.reason_prefix
+                             + f"목록 API 에서 {len(r.tee_times)}건 "
+                               f"({best.url[:60]})")
+            return
+
+        r = auto_extract(html, course_name=self.course_name, source_id=self.id,
+                         play_date=play_date, base_url=url,
+                         known_selector=known_selector)
+        result.tee_times = r.tee_times
+        result.block_selector = r.block_selector
+        result.reason = result.reason_prefix + (
+            "로그인해야 목록이 보이는 화면입니다" if r.needs_login else r.reason)
 
     # -- 소스 인터페이스 ----------------------------------------------------
 
