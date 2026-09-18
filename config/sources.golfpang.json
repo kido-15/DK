@@ -33,11 +33,20 @@
         },
         "delay_seconds": 1.5,
         "max_requests": 400,
+        "_stop_when_repeated_주의": [
+          "골팡은 마지막 페이지를 넘기면 빈 표를 돌려줍니다. 마지막 페이지를 반복해서",
+          "주지 않으므로 stop_when_empty 만으로 끝을 알 수 있습니다.",
+          "반대로 골팡 목록은 매물이 실시간으로 드나들어 페이지 경계가 계속 밀립니다.",
+          "그래서 서로 다른 페이지가 우연히 같은 내용으로 보일 때가 있고,",
+          "stop_when_repeated 를 켜 두면 그때 목록 한가운데서 조용히 멈춥니다.",
+          "실제로 2026-09-20 수집이 104페이지 중 48페이지에서 멈춰 절반을 놓쳤습니다.",
+          "그래서 이 사이트에서는 끕니다."
+        ],
         "pages": {
           "start": 1,
           "max": 120,
           "stop_when_empty": true,
-          "stop_when_repeated": true
+          "stop_when_repeated": false
         }
       },
 

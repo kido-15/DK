@@ -179,8 +179,26 @@ class TestGolfpangConfig(unittest.TestCase):
     def test_pages_are_actually_turned(self):
         pages = self.cfg["request"]["pages"]
         self.assertGreater(pages["max"], 50, "한 페이지 100건이라 전량이 안 된다")
-        self.assertTrue(pages["stop_when_repeated"])
         self.assertTrue(self.cfg["request"].get("max_requests"))
+
+    def test_end_of_list_is_found_by_the_empty_page(self):
+        """골팡에서 끝을 알려 주는 것은 빈 표다. 같은 내용 검사가 아니다.
+
+        실제로 확인한 것(2026-09-18):
+          - 마지막 페이지(101)를 넘긴 102·103·200 페이지는 머리글만 있는 빈 표였고
+            응답이 md5까지 같았다. 마지막 페이지를 반복해 주지 않는다.
+          - 반면 목록은 매물이 실시간으로 드나들어 페이지 경계가 밀린다. 60페이지를
+            연속으로 받아 보면 6,000행 중 612행이 앞뒤 페이지와 겹쳤다.
+            그래서 서로 다른 페이지가 우연히 같은 내용으로 보일 수 있고,
+            2026-09-20 수집이 104페이지 중 48페이지에서 그렇게 멈춰 절반을 놓쳤다.
+
+        stop_when_repeated 는 이 사이트에서 얻는 것이 없고 조용히 절반을 버린다.
+        """
+        pages = self.cfg["request"]["pages"]
+        self.assertTrue(pages["stop_when_empty"],
+                        "빈 페이지로 멈추지 않으면 끝을 알 수 없다")
+        self.assertFalse(pages["stop_when_repeated"],
+                         "골팡에서는 목록 한가운데서 멈추게 만든다")
 
     def test_page_and_date_are_templated(self):
         body = self.cfg["request"]["body"]
