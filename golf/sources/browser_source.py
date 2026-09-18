@@ -961,6 +961,9 @@ class BrowserSource:
                 page.goto(self._render(dates[0] if dates else None),
                           wait_until="domcontentloaded", timeout=self.timeout_ms)
                 page.wait_for_timeout(self.wait_ms)
+                # 목록을 나중에 ajax 로 채우는 화면은 여기서 더 기다려야 한다.
+                # 기다리지 않으면 첫 날짜만 빈 화면을 읽고 0건이 된다.
+                interact.wait_for_list(page)
 
                 if search_text:
                     interact.click_text(page, search_text)
@@ -994,6 +997,22 @@ class BrowserSource:
                     html = page.content()
                     self._fill_result(result, html, page.url, d, list(captured),
                                       known_selector=known_selector)
+                    # 읽어 온 것이 정말 그 날짜인지 확인한다. 목록을 ajax 로
+                    # 다시 받아 오는 사이트는 누른 직후 잠깐 목록을 비우고,
+                    # 그 다음 몇 초 동안은 아직 이전 날짜가 보인다. 그 사이에
+                    # 읽으면 0건이 되거나 어제 목록을 오늘 것으로 세게 된다.
+                    for _ in range(8):
+                        dated = [t for t in result.tee_times if t.play_date]
+                        if dated and any(t.play_date == d for t in dated):
+                            break
+                        if result.tee_times and not dated:
+                            break      # 날짜가 안 적힌 목록이면 확인할 방법이 없다
+                        page.wait_for_timeout(1000)
+                        result = BrowserResult()
+                        result.reason_prefix = "(목록이 채워지길 기다림) "
+                        self._fill_result(result, page.content(), page.url, d,
+                                          list(captured),
+                                          known_selector=known_selector)
                     if result.block_selector:
                         known_selector = result.block_selector
                     out[d] = result

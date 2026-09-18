@@ -35,6 +35,9 @@ DATE_ATTRS = ["data-date", "data-day", "data-value", "data-ymd", "data-time",
 # 속성만 찾으면 이런 사이트의 날짜는 영영 못 고른다.
 DATE_IN_ATTRS = ["onclick", "href", "data-params", "data-args", "onchange", "ng-click"]
 
+# 화면에 목록이 그려졌는지 가늠할 때 쓰는 시각 표기
+_TIME_IN_TEXT = re.compile(r"\b\d{1,2}:\d{2}\b")
+
 
 @dataclass
 class ClickResult:
@@ -92,6 +95,80 @@ def _wait_settle(page, ms: int = 1800) -> None:
     page.wait_for_timeout(600)
 
 
+def _wait_until_stable(page, budget_ms: int = 6000, step_ms: int = 500) -> None:
+    """화면이 더 이상 변하지 않을 때까지 기다린다.
+
+    그리는 도중을 읽으면 목록이 반만 들어온다.
+    """
+    last = _list_fingerprint(page)
+    waited = 0
+    while waited < budget_ms:
+        page.wait_for_timeout(step_ms)
+        waited += step_ms
+        now = _list_fingerprint(page)
+        if now == last:
+            return
+        last = now
+
+
+def _fetch_count(page) -> int:
+    """지금까지 이 화면이 받아 온 것의 개수. 눌러서 뭔가 오갔는지 보는 데 쓴다."""
+    try:
+        return int(page.evaluate(
+            "performance.getEntriesByType('resource').length"))
+    except Exception:
+        return -1
+
+
+def _wait_for_change(page, before: str, budget_ms: int = 8000,
+                     step_ms: int = 500) -> bool:
+    """목록이 실제로 달라질 때까지 기다린다.
+
+    목록을 ajax 로 다시 받아 오는 사이트는 누르고 나서 몇 초가 지나야 화면이
+    바뀐다. 골팡이 그런데, 날짜를 누른 뒤 목록이 바뀌기까지 4초쯤 걸린다.
+    짧게만 기다리면 아직 남아 있는 **이전 날짜의 목록**을 읽게 된다.
+    """
+    waited = 0
+    while waited < budget_ms:
+        page.wait_for_timeout(step_ms)
+        waited += step_ms
+        if _list_fingerprint(page) != before:
+            return True
+    return False
+
+
+def wait_for_list(page, budget_ms: int = 20000, step_ms: int = 500) -> bool:
+    """목록이 처음 그려질 때까지 기다린다.
+
+    문서를 다 읽었다고 목록이 있는 것이 아니다. 목록을 나중에 ajax 로 채우는
+    화면은 몇 초 더 걸린다. 시각처럼 보이는 글자가 여럿 나타나면 그려진 것으로
+    보고, 더 이상 변하지 않을 때까지 한 번 더 기다린다.
+    """
+    waited = 0
+    quiet = 0
+    seen = _fetch_count(page)
+    last = _list_fingerprint(page)
+    while waited < budget_ms:
+        try:
+            text = page.inner_text("body", timeout=2000)
+        except Exception:
+            text = ""
+        if len(_TIME_IN_TEXT.findall(text)) >= 3:
+            _wait_until_stable(page)
+            return True
+        page.wait_for_timeout(step_ms)
+        waited += step_ms
+        # 오가는 것도 없고 화면도 그대로면, 더 기다려도 목록은 안 나온다.
+        now_fetched, now_fp = _fetch_count(page), _list_fingerprint(page)
+        if now_fetched != seen or now_fp != last:
+            seen, last, quiet = now_fetched, now_fp, 0
+        else:
+            quiet += step_ms
+            if quiet >= 2500:
+                return False
+    return False
+
+
 def _click_score(el) -> int:
     """누르면 반응할 가능성이 높은 요소일수록 높은 점수.
 
@@ -145,6 +222,7 @@ def _try_click(page, locator, label: str, before: str,
 
     last = ClickResult(reason=f"{label}: 눌러도 목록이 바뀌지 않았습니다")
     for _, _, el in candidates[:max_tries]:
+        fetched_before = _fetch_count(page)
         try:
             el.scroll_into_view_if_needed(timeout=1500)
             el.click(timeout=3000)
@@ -153,8 +231,15 @@ def _try_click(page, locator, label: str, before: str,
             continue
 
         _wait_settle(page)
-        after = _list_fingerprint(page)
-        if after != before:
+        # 화면이 그대로인데 오간 것도 없으면 그 클릭은 아무 일도 하지 않은 것이다.
+        # 그럴 때까지 오래 기다리면 사이트마다 클릭 후보 수만큼 시간을 버린다.
+        if (_list_fingerprint(page) == before
+                and _fetch_count(page) == fetched_before >= 0):
+            last = ClickResult(clicked=True, how=label, changed=False,
+                               reason=f"{label}: 눌렀지만 목록이 그대로입니다")
+            continue
+        if _list_fingerprint(page) != before or _wait_for_change(page, before):
+            _wait_until_stable(page)
             return ClickResult(clicked=True, how=label, changed=True,
                                reason=f"{label} 를 눌렀습니다")
         last = ClickResult(clicked=True, how=label, changed=False,

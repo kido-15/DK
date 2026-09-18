@@ -276,6 +276,65 @@ def extract_course_name(block: htmlsel.Node) -> str:
     return candidates[0][1]
 
 
+# 표 머리글에 쓰이는 말 → 우리가 쓰는 칸 이름
+#
+# 여러 골프장을 모아 보여 주는 목록은 대개 표(table)이고, 머리글에 각 칸이
+# 무엇인지 적혀 있다. 적혀 있는 것을 읽으면 추측할 필요가 없다.
+HEADER_LABELS = {
+    "course_name": ("골프장", "골프클럽", "코스명", "클럽명", "코스"),
+    "tee_time": ("티타임", "시간", "시각", "출발"),
+    "green_fee": ("그린피", "요금", "가격", "금액", "이용료"),
+    "play_date": ("부킹일", "날짜", "일자", "예약일", "라운딩일", "플레이일"),
+}
+
+
+def _table_of(node: htmlsel.Node):
+    """그 행이 속한 표를 거슬러 올라가 찾는다."""
+    cur = node.parent
+    while cur is not None:
+        if cur.tag == "table":
+            return cur
+        cur = cur.parent
+    return None
+
+
+def table_column_map(nodes: list) -> dict[str, int]:
+    """표 머리글을 읽어 어느 칸이 무엇인지 알아낸다.
+
+    이름 칸을 글자만 보고 고르면 엉뚱한 칸을 집는다. 골팡의 목록이 그런데,
+    "지역"(강북/경춘) 과 "골프장"(필로스) 은 둘 다 짧은 한글이라 구별할 단서가
+    없어 앞에 있는 지역 칸을 이름으로 잡아 버린다. 머리글에 "지역", "골프장"
+    이라고 적혀 있으니 그것을 읽으면 된다.
+
+    머리글이 없거나 칸 수가 맞지 않으면 빈 사전을 돌려주고, 부르는 쪽은
+    원래 방식대로 추측한다.
+    """
+    if not nodes or nodes[0].tag != "tr":
+        return {}
+    table = _table_of(nodes[0])
+    if table is None:
+        return {}
+    headers = table.select("th")
+    if not headers:
+        return {}
+    # 머리글 칸 수와 행의 칸 수가 다르면 번호를 믿을 수 없다
+    if len(nodes[0].select("td")) != len(headers):
+        return {}
+
+    mapping: dict[str, int] = {}
+    for i, th in enumerate(headers):
+        label = re.sub(r"\s+", "", th.text)
+        if not label:
+            continue
+        for field, words in HEADER_LABELS.items():
+            if field in mapping:
+                continue
+            if any(w in label for w in words):
+                mapping[field] = i
+                break
+    return mapping
+
+
 def extract_link(block: htmlsel.Node, base_url: str = "") -> str:
     import urllib.parse
     link = block.select_one("a[href]")
@@ -330,41 +389,73 @@ def detect_login_wall(html: str, root: Optional[htmlsel.Node] = None) -> bool:
 # ---------------------------------------------------------------------------
 
 
+def _cell(block: htmlsel.Node, columns: dict, field: str) -> Optional[htmlsel.Node]:
+    """머리글로 알아낸 칸을 꺼낸다. 칸 번호가 없거나 행이 짧으면 None."""
+    idx = columns.get(field)
+    if idx is None:
+        return None
+    cells = block.select("td")
+    return cells[idx] if idx < len(cells) else None
+
+
 def _blocks_to_tee_times(nodes, *, course_name: str, source_id: str,
                          play_date, base_url: str, detect_names: bool,
-                         count_skipped: bool = False):
+                         count_skipped: bool = False, columns: Optional[dict] = None):
     """목록 항목들을 TeeTime 으로 바꾼다.
+
+    columns 는 표 머리글에서 알아낸 칸 번호다. 있으면 그 칸을 먼저 읽고,
+    읽히지 않을 때만 원래의 추측 방식으로 돌아간다.
 
     count_skipped 를 주면 (티타임, 마감으로 걸러낸 수) 를 함께 돌려준다.
     """
     tee_times: list[TeeTime] = []
     skipped = 0
+    columns = columns or {}
 
     for block in nodes:
         if is_unavailable(block):
             skipped += 1
             continue
 
-        t = extract_time(block)
+        cell = _cell(block, columns, "tee_time")
+        t = extract_time(cell) if cell is not None else None
+        if t is None:
+            t = extract_time(block)
         if t is None:
             continue
 
-        d = extract_date(block) or play_date
+        cell = _cell(block, columns, "play_date")
+        d = extract_date(cell) if cell is not None else None
+        if d is None:
+            d = extract_date(block) or play_date
         if d is None:
             continue
 
-        name = extract_course_name(block) if detect_names else course_name
+        name = ""
+        if detect_names:
+            cell = _cell(block, columns, "course_name")
+            if cell is not None:
+                name = cell.text.strip()[:40]
+            if not name:
+                name = extract_course_name(block)
+        else:
+            name = course_name
         if not name:
             name = course_name        # 행에서 못 찾으면 호출자가 준 이름으로
         if not name:
             continue                  # 이름 없는 티타임은 쓸모가 없다
+
+        cell = _cell(block, columns, "green_fee")
+        fee = extract_price(cell) if cell is not None else -1
+        if fee < 0:
+            fee = extract_price(block)
 
         tee_times.append(
             TeeTime(
                 course_name=name,
                 play_date=d,
                 tee_time=t,
-                green_fee=extract_price(block),
+                green_fee=fee,
                 source=source_id,
                 booking_url=extract_link(block, base_url),
                 slots=extract_slots(block),
@@ -421,7 +512,8 @@ def auto_extract(
             result.confidence = min(block_score(nodes) / 5.0, 1.0) or 0.5
             tee_times = _blocks_to_tee_times(
                 nodes, course_name=course_name, source_id=source_id,
-                play_date=play_date, base_url=base_url, detect_names=detect_names)
+                play_date=play_date, base_url=base_url, detect_names=detect_names,
+                columns=table_column_map(nodes))
             result.tee_times = tee_times
             result.reason = (f"이미 확인된 구조({known_selector})로 "
                              f"{len(nodes)}개 항목 중 {len(tee_times)}건 추출")
@@ -445,12 +537,16 @@ def auto_extract(
         )
         return result
 
+    columns = table_column_map(nodes)
     tee_times, skipped_unavailable = _blocks_to_tee_times(
         nodes, course_name=course_name, source_id=source_id, play_date=play_date,
-        base_url=base_url, detect_names=detect_names, count_skipped=True)
+        base_url=base_url, detect_names=detect_names, count_skipped=True,
+        columns=columns)
 
     result.tee_times = tee_times
     parts = [f"{sig} 구조에서 {len(nodes)}개 항목 중 {len(tee_times)}건 추출"]
+    if columns:
+        parts.append("표 머리글로 칸 확인(" + ", ".join(sorted(columns)) + ")")
     if skipped_unavailable:
         parts.append(f"마감 {skipped_unavailable}건 제외")
     priced = sum(1 for t in tee_times if t.green_fee >= 0)
