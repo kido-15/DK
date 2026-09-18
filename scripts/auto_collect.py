@@ -77,6 +77,21 @@ def main() -> int:
     ap.add_argument("--courses", default=COURSES_DEFAULT)
     args = ap.parse_args()
 
+    # 주소부터 확인한다. 안내문의 예시 글자를 그대로 넣는 일이 흔한데,
+    # 그대로 진행하면 0건이 나와 원인을 찾기 어려워진다.
+    if not args.url.startswith(("http://", "https://")):
+        print(f"주소가 아닙니다: {args.url!r}")
+        print("\n  http:// 또는 https:// 로 시작하는 실제 주소가 필요합니다.")
+        print("\n  주소를 얻는 방법:")
+        print("    1) 브라우저에서 예약 사이트를 엽니다")
+        print("    2) 날짜·지역을 골라 티타임이 줄줄이 보이는 화면을 만듭니다")
+        print("    3) 주소창의 주소를 복사해 따옴표 안에 넣습니다")
+        print('\n       python3 scripts/auto_collect.py "https://golf.kakao.com/..." --show')
+        print("\n  주소를 복사하기 번거롭다면, 보고 있는 화면을 그대로 읽는 방법도 있습니다:")
+        print('\n       open -a "Aside" --args --remote-debugging-port=9222')
+        print("       python3 scripts/grab.py")
+        return 1
+
     if not playwright_available():
         print("브라우저 기능에는 Playwright 가 필요합니다:")
         print("    pip3 install playwright")

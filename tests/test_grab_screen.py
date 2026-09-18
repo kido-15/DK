@@ -172,5 +172,76 @@ class TestGrabOpenTab(unittest.TestCase):
         self.assertTrue(res.reason)
 
 
+@unittest.skipUnless(BS.playwright_available() and BS.find_chromium(),
+                     "Playwright 또는 크로미움이 없음")
+class TestGrabMultipleDates(unittest.TestCase):
+    """열린 탭에서 날짜만 눌러 가며 여러 날을 모은다.
+
+    사람이 로그인하고 조건을 골라 만들어 둔 화면을 그대로 쓰므로, 주소를
+    복사해 오거나 매번 조건을 다시 고를 필요가 없다.
+    """
+
+    PORT = 9399
+    DATES = [date(2026, 9, 20), date(2026, 9, 21), date(2026, 9, 22)]
+    EXPECTED = {
+        DATES[0]: {"가나컨트리클럽", "나다컨트리클럽", "다라컨트리클럽"},
+        DATES[1]: {"마바컨트리클럽", "바사컨트리클럽"},
+        DATES[2]: {"사아컨트리클럽"},
+    }
+
+    @classmethod
+    def setUpClass(cls):
+        from tests.fake_datepick_site import start as start_datepick
+        cls.srv, cls.base = start_datepick()
+        cls.profile = tempfile.mkdtemp()
+        cls.proc = subprocess.Popen(
+            [BS.find_chromium(), f"--remote-debugging-port={cls.PORT}",
+             f"--user-data-dir={cls.profile}", "--headless=new", "--no-sandbox",
+             "--no-first-run", cls.base + "/tabs"],
+            stdout=subprocess.DEVNULL, stderr=subprocess.DEVNULL)
+        cls.cdp = f"http://127.0.0.1:{cls.PORT}"
+        for _ in range(50):
+            try:
+                urllib.request.urlopen(cls.cdp + "/json/version", timeout=1).read()
+                break
+            except Exception:
+                time.sleep(0.3)
+        else:
+            raise unittest.SkipTest("브라우저를 띄우지 못함")
+
+    @classmethod
+    def tearDownClass(cls):
+        cls.srv.shutdown()
+        cls.proc.terminate()
+        try:
+            cls.proc.wait(timeout=5)
+        except Exception:
+            cls.proc.kill()
+        shutil.rmtree(cls.profile, ignore_errors=True)
+
+    def setUp(self):
+        self._orig = BS.SESSION_ROOT
+        self.tmp = tempfile.mkdtemp()
+        BS.SESSION_ROOT = self.tmp
+
+    def tearDown(self):
+        BS.SESSION_ROOT = self._orig
+        shutil.rmtree(self.tmp, ignore_errors=True)
+
+    def test_collects_each_date_separately(self):
+        results = BS.capture_open_tab_dates(self.cdp, self.DATES, tab_index=0,
+                                            source_id="grab")
+        for d in self.DATES:
+            names = {t.course_name for t in results[d].tee_times}
+            self.assertEqual(names, self.EXPECTED[d], f"{d}: {results[d].reason}")
+
+    def test_does_not_open_extra_tabs(self):
+        before = len(BS.list_open_tabs(self.cdp))
+        BS.capture_open_tab_dates(self.cdp, self.DATES, tab_index=0,
+                                  source_id="grab")
+        self.assertEqual(len(BS.list_open_tabs(self.cdp)), before)
+        self.assertIsNone(self.proc.poll())
+
+
 if __name__ == "__main__":
     unittest.main(verbosity=2)

@@ -431,6 +431,107 @@ def list_open_tabs(cdp_url: str) -> list[dict]:
     return tabs
 
 
+def capture_open_tab_dates(cdp_url: str, dates: list, *, tab_url: str = "",
+                           tab_index: int = 0, course_name: str = "",
+                           source_id: str = "tab", on_progress=None) -> dict:
+    """열려 있는 탭에서 날짜를 눌러 가며 여러 날을 모은다.
+
+    사람이 로그인하고 조건을 골라 만들어 둔 화면을 그대로 쓰되, 날짜만 프로그램이
+    넘긴다. 주소를 복사해 올 필요가 없고, 매번 처음부터 조건을 고르지 않아도 된다.
+
+    {날짜: BrowserResult} 를 돌려준다.
+    """
+    out: dict = {}
+    if not playwright_available():
+        for d in dates:
+            r = BrowserResult()
+            r.reason = INSTALL_HINT
+            out[d] = r
+        return out
+
+    from playwright.sync_api import sync_playwright
+    from .. import interact
+
+    src = BrowserSource("", source_id=source_id, course_name=course_name)
+
+    try:
+        with sync_playwright() as p:
+            browser = p.chromium.connect_over_cdp(cdp_url)
+            pages = [pg for ctx in browser.contexts for pg in ctx.pages]
+            if not pages:
+                browser.close()
+                for d in dates:
+                    r = BrowserResult()
+                    r.reason = "열려 있는 탭이 없습니다"
+                    out[d] = r
+                return out
+
+            page = None
+            if tab_url:
+                page = next((pg for pg in pages if pg.url == tab_url), None)
+                if page is None:
+                    page = next((pg for pg in pages if tab_url in pg.url), None)
+            if page is None:
+                page = pages[min(tab_index, len(pages) - 1)]
+
+            captured: list = []
+
+            def on_response(resp):
+                try:
+                    if _SKIP_URL.search(resp.url) or not resp.ok:
+                        return
+                    if "json" not in (resp.header_value("content-type") or "").lower():
+                        return
+                    captured.append((resp.url, resp.request.method, resp.json()))
+                except Exception:
+                    pass
+
+            page.on("response", on_response)
+
+            known_selector = ""
+            for d in dates:
+                captured.clear()
+                result = BrowserResult()
+
+                picked = interact.select_date(page, d)
+                if picked.ok:
+                    result.reason_prefix = picked.how + " → "
+                elif d == dates[0]:
+                    # 첫 날짜는 사람이 이미 그 날짜를 골라 둔 화면일 수 있다
+                    result.reason_prefix = "화면에 보이던 그대로 읽었습니다. "
+                else:
+                    result.reason = picked.reason
+                    result.date_controls = interact.describe_date_controls(page)
+                    out[d] = result
+                    if on_progress:
+                        on_progress(d, result)
+                    continue
+
+                interact.scroll_through(page, 3)
+                interact.load_more(page)
+
+                src._fill_result(result, page.content(), page.url, d,
+                                 list(captured), known_selector=known_selector)
+                if result.block_selector:
+                    known_selector = result.block_selector
+                out[d] = result
+                if on_progress:
+                    on_progress(d, result)
+
+            try:
+                save_cookies(source_id, page.context.cookies())
+            except Exception:
+                pass
+            browser.close()      # 연결만 끊는다. 브라우저와 탭은 그대로 둔다
+    except Exception as exc:
+        for d in dates:
+            if d not in out:
+                r = BrowserResult()
+                r.reason = f"탭을 읽지 못했습니다: {exc}"
+                out[d] = r
+    return out
+
+
 def capture_open_tab(cdp_url: str, *, tab_url: str = "", tab_index: int = 0,
                      course_name: str = "", source_id: str = "tab",
                      play_date=None, scroll: bool = True) -> "BrowserResult":

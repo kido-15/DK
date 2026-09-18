@@ -39,6 +39,7 @@ from golf.courses import DEFAULT_PATH as COURSES_DEFAULT       # noqa: E402
 from golf.courses import CourseBook                            # noqa: E402
 from golf.models import parse_date                             # noqa: E402
 from golf.sources.browser_source import (capture_open_tab,     # noqa: E402
+                                         capture_open_tab_dates,
                                          list_open_tabs,
                                          playwright_available)
 from golf.sources.csv_source import CsvSource                  # noqa: E402
@@ -91,6 +92,8 @@ def main() -> int:
     ap.add_argument("--tab", type=int, help="읽을 탭 번호 (--list 로 확인)")
     ap.add_argument("--list", action="store_true", help="열린 탭 목록만 보기")
     ap.add_argument("--date", help="화면에 날짜가 없을 때 쓸 플레이 날짜")
+    ap.add_argument("--days", type=int,
+                    help="그 탭에서 날짜를 눌러 가며 며칠치를 모은다 (예: 7)")
     ap.add_argument("--source", default="grab", help="이 수집에 붙일 이름")
     ap.add_argument("--save", help="결과를 CSV로 저장할 경로")
     ap.add_argument("--add-snapshot", action="store_true",
@@ -132,8 +135,38 @@ def main() -> int:
         print("  (목록을 더 불러오려고 잠시 스크롤합니다)")
 
     play_date = parse_date(args.date) if args.date else None
-    result = capture_open_tab(cdp, tab_url=target["url"], source_id=args.source,
-                              play_date=play_date, scroll=not args.no_scroll)
+
+    if args.days:
+        # 그 탭에서 날짜를 눌러 가며 여러 날을 모은다.
+        # 사람이 만들어 둔 화면(로그인·조건)을 그대로 쓰고 날짜만 넘긴다.
+        from datetime import timedelta
+        start = play_date or date.today()
+        dates = [start + timedelta(days=i) for i in range(args.days)]
+        print(f"  {dates[0]} 부터 {len(dates)}일치를 모읍니다\n")
+
+        def prog(d, r):
+            n = len(r.tee_times)
+            print(f"    {d}  {n:4d}건  {r.reason[:66]}")
+
+        per_date = capture_open_tab_dates(cdp, dates, tab_url=target["url"],
+                                          source_id=args.source, on_progress=prog)
+        rows = []
+        for d in dates:
+            r = per_date.get(d)
+            if r:
+                rows.extend(r.tee_times)
+
+        result = type("R", (), {})()
+        result.tee_times = rows
+        result.apis = [a for r in per_date.values() for a in (r.apis if r else [])]
+        result.reason = f"{len(dates)}일치에서 모두 {len(rows)}건"
+        empty = [d for d in dates if not (per_date.get(d) and per_date[d].tee_times)]
+        if empty:
+            print(f"\n  비어 있는 날짜 {len(empty)}일: "
+                  f"{', '.join(str(d) for d in empty[:7])}")
+    else:
+        result = capture_open_tab(cdp, tab_url=target["url"], source_id=args.source,
+                                  play_date=play_date, scroll=not args.no_scroll)
 
     print(f"\n  {result.reason}")
 
