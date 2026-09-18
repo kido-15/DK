@@ -91,6 +91,62 @@ class TestNameVariants(unittest.TestCase):
         self.assertEqual(name_variants("   "), [])
 
 
+class TestRegionHint(unittest.TestCase):
+    """이름 괄호 안의 지역 표시.
+
+    같은 이름이 여러 곳에 있을 때 가르는 말이다. 무시하고 붙이면 **엉뚱한
+    지역의 좌표**가 박힌다. 좌표가 없는 것보다 나쁘다 — 없으면 결과에서
+    빠지지만, 틀리면 "강남역에서 90분" 자리에 경남 골프장이 올라온다.
+    """
+
+    def setUp(self):
+        self.book = CourseBook([
+            Course(course_id="gn", name="그랜드 골프클럽", lat=35.2, lon=128.6,
+                   region="경남", address="경남 김해시"),
+            Course(course_id="powell", name="포웰CC", lat=35.3, lon=128.4,
+                   region="경남", address="경남 양산시"),
+            Course(course_id="tgv", name="떼제베 골프장(TGV CC)", lat=36.9,
+                   lon=127.5, region="충북", address="충북 음성군"),
+            Course(course_id="ns", name="남서울cc", lat=37.35, lon=127.06,
+                   region="경기", address="경기 성남시"),
+        ])
+
+    def test_wrong_region_is_refused(self):
+        """충북 청주의 그랜드를 경남 그랜드에 붙이면 안 된다. 못 찾는 편이 낫다."""
+        self.assertIsNone(self.book.match("그랜드(청주)"))
+        self.assertIsNone(self.book.match("포웰(안성)cc"))
+
+    def test_course_subdivision_is_not_a_region(self):
+        """(동북)·(레이크) 는 코스 구분이다. 지역으로 오해해 막으면 안 된다.
+
+        글자만으로는 가를 수 없으므로, 좌표 DB 에 실제 지명으로 나타나는
+        말일 때만 지역으로 본다. '동북'·'레이크' 는 나타나지 않는다.
+        """
+        self.assertEqual(self.book.match("떼제베(동북)").course_id, "tgv")
+        self.assertEqual(self.book.match("남서울 컨트리클럽 (레이크)").course_id, "ns")
+
+    def test_right_region_still_matches(self):
+        b = CourseBook([
+            Course(course_id="cj", name="그랜드 골프클럽", lat=36.6, lon=127.5,
+                   region="충북", address="충북 청주시"),
+        ])
+        self.assertEqual(b.match("그랜드(청주)").course_id, "cj")
+
+
+class TestParenPrefixIsIndexed(unittest.TestCase):
+    """지도 데이터는 괄호에 영문명을 같이 적어 둔다.
+
+    '떼제베 골프장(TGV CC)' 를 통째로만 색인하면 '떼제베' 로는 못 찾는다.
+    """
+
+    def test_matches_by_prefix_before_paren(self):
+        b = CourseBook([
+            Course(course_id="tgv", name="떼제베 골프장(TGV CC)", lat=36.9,
+                   lon=127.5, region="충북"),
+        ])
+        self.assertEqual(b.match("떼제베").course_id, "tgv")
+
+
 class TestExactBeatsFuzzy(unittest.TestCase):
     """확실한 방법을 모든 후보에 먼저 써 본 뒤 어림짐작으로 간다."""
 

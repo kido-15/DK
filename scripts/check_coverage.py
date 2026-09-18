@@ -15,9 +15,12 @@
 from __future__ import annotations
 
 import argparse
+import difflib
 import os
 import sys
 from collections import Counter
+
+SHAKY_RATIO = 0.45      # 이보다 이름이 다르면 사람이 한 번 봐야 한다
 
 sys.path.insert(0, os.path.dirname(os.path.dirname(os.path.abspath(__file__))))
 
@@ -75,6 +78,19 @@ def main() -> int:
           f"  ({(total - lost) / total * 100:.1f}%)")
     print(f"  못 찾음     {len(miss):4d}종   티타임 {lost:6,d}건"
           f"  ({lost / total * 100:.1f}%)  ← 출발지 검색에서 빠집니다")
+
+    # 붙기는 붙었는데 이름이 많이 다른 것들. 틀린 좌표는 없는 것보다 나쁘다 —
+    # 없으면 결과에서 빠지지만, 틀리면 엉뚱한 지역이 이동시간 안에 들어온다.
+    shaky = []
+    for name, (n, course) in hit.items():
+        ratio = difflib.SequenceMatcher(None, name, course.name).ratio()
+        if ratio < SHAKY_RATIO:
+            shaky.append((ratio, name, course, n))
+    if shaky:
+        print(f"\n눈으로 확인이 필요한 매칭 {len(shaky)}종 (이름이 많이 다름)")
+        for ratio, name, course, n in sorted(shaky)[:args.limit]:
+            print(f"  {n:5,d}건  '{name}'  →  '{course.name}' ({course.region})")
+        print("  틀린 것이 있으면 그 골프장의 aliases 칸을 채워 바로잡으세요.")
 
     if not miss:
         print("\n전부 잡힙니다. 출발지 기준 검색이 모든 티타임을 대상으로 돕니다.")

@@ -12,10 +12,29 @@ from __future__ import annotations
 
 import csv
 import difflib
+import re
 import os
 from typing import Iterable, Optional
 
-from .models import Course, name_variants, normalize_course_name
+from .geo import PLACE_NAMES
+from .models import (Course, name_variants, normalize_course_name,
+                     region_hint)
+
+
+def _place_tokens(course: Course) -> set:
+    """이 골프장이 놓인 곳을 가리키는 말들 (시도 + 주소의 시·군·구).
+
+    이름 괄호 안의 표시가 지역인지 코스 구분인지 가릴 때 쓴다.
+    "청주"·"안성"은 여기에 나타나고, "레이크"·"동북"은 나타나지 않는다.
+    """
+    out = set()
+    if course.region:
+        out.add(course.region)
+    for token in re.findall(r"[가-힣]{2,4}(?=[시군구]\s|[시군구]$)", course.address or ""):
+        out.add(token)
+    for token in re.findall(r"([가-힣]{2,4})[시군구](?:\s|$)", course.address or ""):
+        out.add(token)
+    return out
 
 DEFAULT_PATH = os.path.join(
     os.path.dirname(os.path.dirname(os.path.abspath(__file__))),
@@ -83,16 +102,19 @@ class CourseBook:
 
     def reindex(self) -> None:
         self._index = {}
+        self._places = set()
         for c in self.courses:
             for key in c.match_keys():
                 if key:
                     self._index.setdefault(key, c)
+            self._places.update(_place_tokens(c))
 
     def add(self, course: Course) -> None:
         self.courses.append(course)
         for key in course.match_keys():
             if key:
                 self._index.setdefault(key, course)
+        self._places.update(_place_tokens(course))
 
     def __len__(self) -> int:
         return len(self.courses)
@@ -122,6 +144,25 @@ class CourseBook:
             if hit:
                 return hit
 
+        # 이름 괄호 안의 표시가 **지역**이면, 그 지역이 아닌 곳에 붙이면 안 된다.
+        #
+        #     그랜드(청주) → 경남의 '그랜드 골프클럽' 에 붙으면 충북이 경남이 된다
+        #
+        # 좌표가 틀리는 것은 없는 것보다 나쁘다. 없으면 결과에서 빠지지만,
+        # 틀리면 "강남역에서 90분" 자리에 경남 골프장이 자신 있게 올라온다.
+        #
+        # 다만 (레이크)·(동북) 같은 **코스 구분**도 같은 자리에 적힌다. 둘을
+        # 글자만 보고 가를 수 없으므로, 좌표 DB 에 실제 지명으로 나타나는
+        # 말일 때만 지역으로 본다.
+        hint = region_hint(raw_name)
+        if hint and hint not in self._places and hint not in PLACE_NAMES:
+            hint = ""
+
+        def allowed(course: Course) -> bool:
+            if not hint:
+                return True
+            return hint in f"{course.name} {course.address} {course.region}"
+
         for key in keys:                       # 2) 포함 관계
             # "남서울" 같은 짧은 키가 여러 곳에 걸리는 것을 막기 위해
             # 3글자 이상일 때만 시도하고, 후보가 여럿이면 가장 긴 것을 고른다.
@@ -129,8 +170,9 @@ class CourseBook:
                 continue
             contains = [
                 (k, c) for k, c in self._index.items()
-                if len(k) >= 3 and (k in key or key in k)
+                if len(k) >= 3 and (k in key or key in k) and allowed(c)
             ]
+
             if len(contains) == 1:
                 return contains[0][1]
             if contains:
@@ -141,8 +183,8 @@ class CourseBook:
                     return top[0]
 
         for key in keys:                       # 3) 근사 일치
-            close = difflib.get_close_matches(
-                key, self._index.keys(), n=1, cutoff=FUZZY_THRESHOLD)
+            pool = [k for k, c in self._index.items() if allowed(c)]
+            close = difflib.get_close_matches(key, pool, n=1, cutoff=FUZZY_THRESHOLD)
             if close:
                 return self._index[close[0]]
 

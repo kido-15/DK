@@ -56,8 +56,25 @@ class Course:
         )
 
     def match_keys(self) -> list[str]:
-        """예약 사이트의 골프장 이름과 대조할 때 쓰는 정규화된 키 목록."""
-        return [normalize_course_name(n) for n in [self.name, *self.aliases] if n]
+        """예약 사이트의 골프장 이름과 대조할 때 쓰는 정규화된 키 목록.
+
+        지도 데이터는 괄호 안에 영문명이나 운영 형태를 같이 적어 두는 일이 많다.
+        그대로 두면 예약 사이트 표기와 글자가 어긋나 못 찾는다.
+
+            떼제베 골프장(TGV CC)   → '떼제베tgv' 만으로는 '떼제베(동북)' 을 못 잡는다
+                                   → 괄호 앞부분 '떼제베' 도 키로 넣는다
+
+        괄호 앞부분이 너무 짧아지면(한두 글자) 엉뚱한 곳에 걸리므로 넣지 않는다.
+        """
+        keys: list[str] = []
+        for raw in [self.name, *self.aliases]:
+            if not raw:
+                continue
+            for candidate in (raw, raw.split("(")[0].split("[")[0]):
+                key = normalize_course_name(candidate)
+                if key and len(key) >= 2 and key not in keys:
+                    keys.append(key)
+        return keys
 
 
 _NAME_NOISE = re.compile(
@@ -106,6 +123,27 @@ _FORMER_NAME = re.compile(r"[(\[]\s*구[.\s]\s*([^)\]]+)[)\]]")
 
 # 예약 사이트가 앞에 붙이는 운영사 이름.
 _OPERATOR_PREFIX = re.compile(r"^(골프존카운티|골프존|sk|한화|대명|소노|아난티)\s*", re.IGNORECASE)
+
+
+# 이름 뒤 괄호에 적히는 **지역 표시**. 같은 이름이 여러 곳에 있을 때 가른다.
+#
+#     그랜드(청주)   충북 청주의 그랜드   ≠   경남의 그랜드 골프클럽
+#     포웰(안성)cc   경기 안성의 포웰     ≠   경남의 포웰CC
+#
+# 이걸 무시하고 이름만 보고 붙이면 **엉뚱한 지역의 좌표**가 박힌다. 좌표가
+# 없는 것보다 나쁘다 — 없으면 결과에서 빠지지만, 틀리면 "강남역에서 90분"
+# 자리에 경남 골프장이 자신 있게 올라온다.
+_REGION_HINT = re.compile(r"[(\[]\s*([가-힣]{2,4})\s*[)\]]")
+
+
+def region_hint(raw: str) -> str:
+    """이름 괄호 안의 지역 표시. 없으면 빈 문자열."""
+    for m in _REGION_HINT.finditer(raw or ""):
+        token = m.group(1)
+        if _BOOKING_QUALIFIERS.fullmatch(token) or token.startswith("구."):
+            continue                      # 판매 조건이지 지역이 아니다
+        return token
+    return ""
 
 
 def name_variants(raw: str) -> list[str]:
