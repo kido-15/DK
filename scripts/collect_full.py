@@ -149,6 +149,14 @@ def main() -> int:
     for err in (stats.get("errors") or [])[:5]:
         print(f"  오류: {err}")
 
+    # 중간에 끊긴 날짜가 있으면 건수만 보고 다 받았다고 믿으면 안 된다.
+    # 요청 한 번이 실패해도 그 날짜만 조용히 덜 받은 채 끝나기 때문이다.
+    incomplete = stats.get("incomplete") or []
+    if incomplete:
+        print("\n  ⚠ 끝까지 받지 못한 날짜가 있습니다. 아래 건수는 전량이 아닙니다.")
+        for line in incomplete:
+            print(f"    - {line}")
+
     if not rows:
         print("\n티타임을 받지 못했습니다. 확인해 볼 것:")
         print("  - --dry-run 으로 한 페이지만 받아 보세요")
@@ -210,6 +218,12 @@ def main() -> int:
         print("\n--dry-run 이라 저장하지 않았습니다. 칸이 제대로 잡혔으면 빼고 다시 실행하세요.")
         return 0
 
+    if incomplete:
+        print("\n  ⚠ 위 날짜는 다시 받아야 합니다:")
+        for line in incomplete:
+            day = line.split(":")[0]
+            print(f"      python3 scripts/collect_full.py {args.source} --dates {day}")
+
     if not args.no_snapshot:
         existing, _ = snapshot.load(snapshot.latest_path())
         keep = [t for t in existing if t.source != src.id]
@@ -222,7 +236,7 @@ def main() -> int:
         print("  python3 golf_web.py --snapshot")
         print("  python3 golf_cli.py --snapshot --from 37.4979,127.0276 \\")
         print("      --time 11:00-15:00 --max-price 150000 --max-drive 90")
-    return 0
+    return 2 if incomplete else 0
 
 
 if __name__ == "__main__":

@@ -152,6 +152,40 @@ class TestPaging(unittest.TestCase):
         self.assertEqual(len(rows), TOTAL * 2)
 
 
+class TestBrokenRequestIsReported(unittest.TestCase):
+    """요청이 중간에 실패하면 그 날짜는 덜 받은 것이다. 조용히 넘어가면 안 된다.
+
+    실제로 3일치를 받다가 2026-09-19 에서 연결이 한 번 끊겼는데, 그 날짜만
+    700건(7페이지)에서 끊긴 채 전체는 정상 종료한 것처럼 끝났다. 건수만 보면
+    그럴듯해 보여서 알아채기 어렵다.
+    """
+
+    def test_failed_page_marks_the_date_incomplete(self):
+        cfg = config_for("http://127.0.0.1:1", "/list")   # 아무도 없는 포트
+        cfg["request"]["retries"] = 0
+        src = WebSource(cfg)
+        rows = src.fetch([DAY])
+        self.assertEqual(rows, [])
+        incomplete = src.last_stats.get("incomplete")
+        self.assertTrue(incomplete, "끝까지 못 받았다는 사실이 남아야 한다")
+        self.assertIn(str(DAY), incomplete[0])
+
+    def test_good_run_is_not_marked_incomplete(self):
+        cfg = config_for(self.base, "/list")
+        src = WebSource(cfg)
+        rows = src.fetch([DAY])
+        self.assertEqual(len(rows), TOTAL)
+        self.assertFalse(src.last_stats.get("incomplete"))
+
+    @classmethod
+    def setUpClass(cls):
+        cls.httpd, cls.base = start()
+
+    @classmethod
+    def tearDownClass(cls):
+        cls.httpd.shutdown()
+
+
 class TestGolfpangConfig(unittest.TestCase):
     """저장소에 넣어 둔 골팡 설정이 실제로 쓸 수 있는 모양인지."""
 

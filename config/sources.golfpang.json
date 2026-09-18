@@ -32,6 +32,7 @@
           "cdOrder": ""
         },
         "delay_seconds": 1.5,
+        "retries": 4,
         "max_requests": 400,
         "_stop_when_repeated_주의": [
           "골팡은 마지막 페이지를 넘기면 빈 표를 돌려줍니다. 마지막 페이지를 반복해서",

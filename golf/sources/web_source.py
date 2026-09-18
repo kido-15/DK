@@ -295,7 +295,9 @@ class WebSource:
             if cookie:
                 headers.setdefault("Cookie", cookie)
                 self.has_cookie = True
-        self.client = HttpClient(headers=headers)
+        self.client = HttpClient(
+            headers=headers,
+            retries=int(self.request_cfg.get("retries", 2)))
         self.last_error: str = ""
         self.last_stats: dict[str, Any] = {}
         self._robots: dict[str, urllib.robotparser.RobotFileParser] = {}
@@ -383,17 +385,24 @@ class WebSource:
         errors: list[str] = []
 
         stopped: list[str] = []
+        # 요청이 실패해 그 날짜를 끝까지 못 돈 경우. 받은 건수만 보면 그럴듯해
+        # 보이기 때문에, 덜 받았다는 사실을 따로 들고 나가야 한다.
+        incomplete: list[str] = []
         for d in dates or [date.today()]:
             seen_pages: set[str] = set()
             for page in range(page_start, page_start + page_max):
                 if max_requests and requests_made >= max_requests:
                     stopped.append(f"{d}: 요청 상한 {max_requests}회에 걸려 멈췄습니다")
+                    incomplete.append(
+                        f"{d}: 요청 상한 {max_requests}회에 걸려 끝까지 "
+                        f"받지 못했습니다")
                     break
                 context = {"date": d, "page": page}
                 url = self._render(url_tpl, context)
 
                 if not self._robots_allows(url):
                     errors.append(f"robots.txt가 막은 주소: {url}")
+                    incomplete.append(f"{d}: robots.txt가 막아 건너뛰었습니다")
                     break
 
                 body = self.request_cfg.get("body")
@@ -412,12 +421,18 @@ class WebSource:
                     requests_made += 1
                 except Exception as exc:
                     errors.append(f"{url} → {exc}")
+                    incomplete.append(
+                        f"{d}: {page}페이지에서 요청이 실패해 이 날짜를 끝까지 "
+                        f"받지 못했습니다 ({exc})")
                     break
 
                 try:
                     rows = self._parse(text, context)
                 except Exception as exc:
                     errors.append(f"파싱 실패 ({url}): {exc}")
+                    incomplete.append(
+                        f"{d}: {page}페이지를 읽지 못해 이 날짜를 끝까지 "
+                        f"받지 못했습니다 ({exc})")
                     break
 
                 if stop_empty and not rows:
@@ -444,6 +459,7 @@ class WebSource:
             "rows": len(results),
             "errors": errors,
             "stopped": stopped,
+            "incomplete": incomplete,
         }
         if errors and not results:
             self.last_error = errors[0]
