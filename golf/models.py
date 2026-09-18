@@ -260,10 +260,22 @@ def parse_time(value: Any) -> Optional[time]:
     return time(hour=hh, minute=mm)
 
 
-def parse_date(value: Any, *, today: Optional[date] = None) -> Optional[date]:
+def parse_date(value: Any, *, today: Optional[date] = None,
+               near: Optional[date] = None) -> Optional[date]:
     """'2026-09-20', '2026.09.20', '09/20', '9월 20일' 등을 date로 바꾼다.
 
     연도가 없으면 오늘을 기준으로 가장 가까운 미래 날짜로 해석한다.
+
+    near 를 주면 **그 날짜에 가장 가까운 연도**를 고른다. 어느 날짜를 요청해서
+    받은 목록인지 아는 경우에 쓴다. 예약 사이트는 연도 없이 "09월18일" 처럼만
+    적는 곳이 많은데, 오늘 기준으로만 풀면 미래 쪽으로만 밀린다.
+
+        오늘 2026-09-19, 목록에 "09월18일" (어제 목록이 섞여 들어온 경우)
+          today 기준 → 2027-09-18   내년으로 밀려 버린다
+          near=2026-09-19 기준 → 2026-09-18   하루 전으로 제대로 잡힌다
+
+    앞의 결과는 그럴듯해 보여서 더 나쁘다. 잘못 받아 온 목록이 1년 뒤 날짜로
+    조용히 저장된다. 뒤의 결과라야 "요청한 날짜가 아니다" 로 걸러진다.
     """
     if value is None:
         return None
@@ -286,6 +298,18 @@ def parse_date(value: Any, *, today: Optional[date] = None) -> Optional[date]:
     m = re.search(r"(\d{1,2})\s*[-./월]\s*(\d{1,2})", s)
     if m:
         mo, dd = int(m.group(1)), int(m.group(2))
+        if near is not None:
+            # 요청한 날짜를 아는 경우. 앞뒤 연도까지 놓고 가장 가까운 것을 고른다.
+            # 연말에 다음 해 날짜를 조회하는 경우(12월에 1월 티타임)도 이걸로 풀린다.
+            best: Optional[date] = None
+            for year in (near.year - 1, near.year, near.year + 1):
+                try:
+                    cand = date(year, mo, dd)
+                except ValueError:
+                    continue          # 윤년이 아닌 해의 2월 29일
+                if best is None or abs((cand - near).days) < abs((best - near).days):
+                    best = cand
+            return best
         for year in (today.year, today.year + 1):
             try:
                 cand = date(year, mo, dd)

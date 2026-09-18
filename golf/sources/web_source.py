@@ -483,7 +483,12 @@ class WebSource:
         if not name:
             return None
 
-        d = parse_date(extract(rec, fields.get("play_date"), context)) or context.get("date")
+        # 어느 날짜를 요청해서 받은 목록인지 알고 있다. 연도가 안 적힌 사이트가
+        # 많은데(골팡의 "09월19일 (토)"), 그걸 오늘 기준으로만 풀면 하루 전 날짜가
+        # 1년 뒤로 밀린다. 요청한 날짜에 가장 가까운 연도를 고르게 한다.
+        asked = context.get("date")
+        d = parse_date(extract(rec, fields.get("play_date"), context),
+                       near=asked) or asked
         t = parse_time(extract(rec, fields.get("tee_time"), context))
         if d is None or t is None:
             return None

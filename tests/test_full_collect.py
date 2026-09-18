@@ -152,6 +152,55 @@ class TestPaging(unittest.TestCase):
         self.assertEqual(len(rows), TOTAL * 2)
 
 
+class TestYearlessDates(unittest.TestCase):
+    """연도가 안 적힌 날짜를 어느 해로 볼 것인가.
+
+    골팡은 부킹일을 "09월19일 (토)" 로만 적는다. 연도가 없다.
+    """
+
+    ROW = ('<table class="type2"><tbody><tr>'
+           '<td>한강이남</td><td>{날짜}</td><td>17:35</td><td></td>'
+           '<td>리베라</td><td>18홀</td><td></td>'
+           '<td><span class="price">140,000</span>원</td>'
+           "</tr></tbody></table>")
+
+    def _parsed(self, text: str, asked: date):
+        cfg = config_for("http://x", "/none")
+        rows = WebSource(cfg)._parse(self.ROW.replace("{날짜}", text),
+                                     {"date": asked})
+        return rows[0].play_date
+
+    def test_stale_row_stays_in_the_past(self):
+        """어제 목록이 섞여 들어왔을 때.
+
+        오늘 기준으로만 풀면 "가장 가까운 미래" 규칙 때문에 1년 뒤로 밀린다.
+        그럴듯한 날짜라 더 나쁘다 — 잘못 받아 온 목록이 조용히 저장된다.
+        하루 전으로 잡혀야 "요청한 날짜가 아니다" 로 걸러진다.
+        """
+        got = self._parsed("09월18일 (금)", date(2026, 9, 19))
+        self.assertEqual(got, date(2026, 9, 18))
+
+    def test_normal_row(self):
+        self.assertEqual(self._parsed("09월19일 (토)", date(2026, 9, 19)),
+                         date(2026, 9, 19))
+
+    def test_crossing_into_next_year(self):
+        """연말에 다음 해 티타임을 조회하는 경우."""
+        self.assertEqual(self._parsed("01월05일 (화)", date(2027, 1, 5)),
+                         date(2027, 1, 5))
+        self.assertEqual(self._parsed("01월02일", date(2026, 12, 31)),
+                         date(2027, 1, 2))
+
+    def test_crossing_back_over_new_year(self):
+        self.assertEqual(self._parsed("12월30일", date(2027, 1, 2)),
+                         date(2026, 12, 30))
+
+    def test_leap_day_picks_a_real_date(self):
+        """윤년이 아닌 해의 2월 29일은 만들 수 없다. 건너뛰고 실제 있는 해를 고른다."""
+        self.assertEqual(self._parsed("02월29일", date(2027, 3, 1)),
+                         date(2028, 2, 29))
+
+
 class TestGolfpangConfig(unittest.TestCase):
     """저장소에 넣어 둔 골팡 설정이 실제로 쓸 수 있는 모양인지."""
 
