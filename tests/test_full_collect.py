@@ -176,11 +176,27 @@ class TestGolfpangConfig(unittest.TestCase):
         self.assertTrue(self.cfg.get("respect_robots", True))
         self.assertGreaterEqual(self.cfg["request"]["delay_seconds"], 1.0)
 
+    # 실측(2026-09-18): 2026-09-19 하루가 10,087건 = 101페이지.
+    # 여기에 "더 없음"을 확인하는 빈 페이지 1회가 붙는다.
+    PAGES_PER_DATE = 102
+
     def test_pages_are_actually_turned(self):
         pages = self.cfg["request"]["pages"]
-        self.assertGreater(pages["max"], 50, "한 페이지 100건이라 전량이 안 된다")
+        self.assertGreater(pages["max"], self.PAGES_PER_DATE,
+                           "하루 101페이지라 이보다 작으면 전량이 안 된다")
         self.assertTrue(pages["stop_when_repeated"])
         self.assertTrue(self.cfg["request"].get("max_requests"))
+
+    def test_request_cap_covers_the_documented_week(self):
+        """max_requests 는 날짜를 합친 전체 요청 수다.
+
+        README 가 `--days 7` 을 예로 드는데 상한이 그보다 작으면 뒷 날짜가
+        통째로 잘린다. 멈춘 이유는 찍히지만, 예로 든 명령이 반쪽짜리가 된다.
+        """
+        need = 7 * self.PAGES_PER_DATE
+        self.assertGreaterEqual(
+            self.cfg["request"]["max_requests"], need,
+            f"--days 7 에는 요청 {need}회가 필요하다")
 
     def test_page_and_date_are_templated(self):
         body = self.cfg["request"]["body"]
