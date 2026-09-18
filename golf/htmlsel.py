@@ -12,6 +12,8 @@ BeautifulSoup 없이도 크롤링이 되도록 하기 위한 것이다.
     a[href]                속성 존재
     td[class="fee"]        속성 값 일치
     li:nth-of-type(2)      형제 중 같은 태그 n번째
+    td:nth-child(5)        부모의 n번째 자식 (표의 n번째 칸)
+    td:first-child         첫 칸 / td:last-child 마지막 칸
 
 BeautifulSoup이 설치돼 있으면 그쪽을 쓰는 편이 빠르고 견고하지만,
 이 모듈만으로도 일반적인 예약 목록 페이지는 충분히 다룰 수 있다.
@@ -142,6 +144,9 @@ _SIMPLE_RE = re.compile(
       | \.[\w-]+
       | \[[^\]]+\]
       | :nth-of-type\(\d+\)
+      | :nth-child\(\d+\)
+      | :first-child
+      | :last-child
     )*)
     """,
     re.VERBOSE,
@@ -156,6 +161,13 @@ class _Simple:
         m = _SIMPLE_RE.match(token)
         if not m or (not m.group("tag") and not m.group("rest")):
             raise ValueError(f"해석할 수 없는 선택자: {token!r}")
+        # 끝까지 읽지 못했으면 모르는 문법이다. 여기서 조용히 넘기면 그 조건이
+        # 통째로 무시되어 엉뚱한 요소가 잡힌다. 예를 들어 :nth-child 를 모르던
+        # 때 "td:nth-child(5)" 는 그냥 "td" 가 되어 모든 칸이 걸렸다.
+        if m.end() != len(token):
+            raise ValueError(
+                f"해석할 수 없는 선택자: {token!r} "
+                f"(모르는 부분: {token[m.end():]!r})")
         self.tag = m.group("tag") or "*"
         rest = m.group("rest") or ""
         self.ids: list[str] = re.findall(r"#([\w-]+)", rest)
@@ -165,6 +177,13 @@ class _Simple:
         ]
         nth = re.search(r":nth-of-type\((\d+)\)", rest)
         self.nth = int(nth.group(1)) if nth else None
+        # :nth-child 는 태그와 무관하게 부모의 몇 번째 자식인지를 센다.
+        # 표에서 "n번째 칸" 을 가리킬 때 쓴다.
+        child = re.search(r":nth-child\((\d+)\)", rest)
+        self.nth_child: Optional[int] = int(child.group(1)) if child else None
+        if ":first-child" in rest:
+            self.nth_child = 1
+        self.last_child = ":last-child" in rest
 
     def matches(self, node: Node) -> bool:
         if self.tag != "*" and node.tag != self.tag:
@@ -199,6 +218,18 @@ class _Simple:
                 if same.index(node) + 1 != self.nth:
                     return False
             except ValueError:
+                return False
+        if self.nth_child is not None or self.last_child:
+            if node.parent is None:
+                return False
+            sibs = list(node.parent.children)
+            try:
+                pos = sibs.index(node) + 1
+            except ValueError:
+                return False
+            if self.nth_child is not None and pos != self.nth_child:
+                return False
+            if self.last_child and pos != len(sibs):
                 return False
         return True
 
@@ -237,10 +268,9 @@ def select(root: Node, selector: str) -> list[Node]:
 
 
 def _select_single(root: Node, selector: str) -> list[Node]:
-    try:
-        tokens = _tokenize(selector)
-    except ValueError:
-        return []
+    # 해석 못 한 선택자를 빈 결과로 덮으면, 설정이 틀렸는데도 "매물 0건" 으로만
+    # 보여서 원인을 알 수 없다. 그대로 올려 보내 어디가 틀렸는지 알린다.
+    tokens = _tokenize(selector)
     if not tokens:
         return []
 

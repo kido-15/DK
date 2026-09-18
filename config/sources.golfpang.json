@@ -1,0 +1,54 @@
+{
+  "sources": [
+    {
+      "id": "golfpang",
+      "name": "골팡",
+      "enabled": true,
+      "format": "html",
+      "respect_robots": true,
+
+      "_주의": [
+        "www.golfpang.com 만 씁니다. m.golfpang.com 은 robots.txt 가 /m/ 를 막고 있고,",
+        "모바일 사이트는 내용 전체가 /m/ 아래에 있어 수집 대상이 아닙니다.",
+        "로그인 없이 목록 전체가 보이므로 로그인하지 않습니다. 읽기만 하고 아무것도 제출하지 않습니다."
+      ],
+
+      "request": {
+        "url": "https://www.golfpang.com/web/round/booking_tblList.do",
+        "method": "POST",
+        "headers": {
+          "X-Requested-With": "XMLHttpRequest",
+          "Referer": "https://www.golfpang.com/web/round/booking_list.do",
+          "Content-Type": "application/x-www-form-urlencoded; charset=UTF-8"
+        },
+        "body": {
+          "pageNum": "{page}",
+          "rd_date": "{date:%Y-%m-%d}",
+          "ampm": "",
+          "sector": "",
+          "clubname": "",
+          "sector2": "",
+          "sector3": "",
+          "cdOrder": ""
+        },
+        "delay_seconds": 1.5,
+        "max_requests": 400,
+        "pages": {
+          "start": 1,
+          "max": 120,
+          "stop_when_empty": true,
+          "stop_when_repeated": true
+        }
+      },
+
+      "list_selector": "table.type2 tr",
+      "fields": {
+        "course_name": {"selector": "td:nth-child(5)"},
+        "play_date":   {"selector": "td:nth-child(2)"},
+        "tee_time":    {"selector": "td:nth-child(3)"},
+        "green_fee":   {"selector": "td:nth-child(8) span.price"},
+        "hole_info":   {"selector": "td:nth-child(6)"}
+      }
+    }
+  ]
+}

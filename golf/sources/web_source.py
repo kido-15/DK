@@ -16,7 +16,9 @@
         "method": "GET",
         "headers": {"Referer": "https://example.com/"},
         "delay_seconds": 1.5,
-        "pages": {"start": 1, "max": 3, "stop_when_empty": true}
+        "max_requests": 400,
+        "pages": {"start": 1, "max": 120,
+                  "stop_when_empty": true, "stop_when_repeated": true}
       },
       "list_selector": "table.tee-list tr.row",
       "fields": {
@@ -27,6 +29,15 @@
         "play_date":   {"from_request": "date"}
       }
     }
+
+페이지 넘기기 (전량 수집):
+  pages.max              날짜당 최대 페이지 수
+  pages.stop_when_empty  빈 페이지가 나오면 멈춘다 (기본 true)
+  pages.stop_when_repeated
+        마지막 페이지를 넘어가도 **같은 목록을 계속 주는** 사이트가 있다.
+        국내 목록 화면에 흔하다. 확인하지 않으면 같은 매물이 페이지 상한만큼
+        쌓인다. 앞서 받은 페이지와 내용이 같으면 멈춘다 (기본 true)
+  request.max_requests   설정을 잘못 적어도 끝없이 두드리지 않게 하는 상한
 
 크롤링 시 지켜야 할 것:
   - robots.txt를 확인하고 (respect_robots 기본 true) 막힌 경로는 건너뛴다
@@ -244,6 +255,18 @@ def _is_bs4_tag(obj: Any) -> bool:
     return _HAS_BS4 and obj.__class__.__name__ == "Tag"
 
 
+def _page_mark(rows: list) -> str:
+    """이 페이지가 무엇을 담고 있는지 나타내는 짧은 표시.
+
+    페이지 번호를 넘겨도 같은 목록을 돌려주는 사이트를 가려내는 데 쓴다.
+    HTML 원문이 아니라 뽑아낸 티타임으로 비교한다. 광고나 접속 시각처럼
+    매번 달라지는 부분 때문에 같은 목록을 다르다고 보는 일을 막기 위해서다.
+    """
+    return "|".join(
+        f"{t.course_name}~{t.play_date}~{t.tee_time:%H:%M}~{t.green_fee}"
+        for t in rows)
+
+
 # ---------------------------------------------------------------------------
 # 소스
 # ---------------------------------------------------------------------------
@@ -320,14 +343,23 @@ class WebSource:
 
     # -- 수집 ---------------------------------------------------------------
 
-    def fetch(self, dates: list[date]) -> list[TeeTime]:
-        """날짜별로 페이지를 돌며 티타임을 모은다. 예외를 밖으로 내보내지 않는다."""
+    def fetch(self, dates: list[date], *, on_progress=None) -> list[TeeTime]:
+        """날짜별로 페이지를 돌며 티타임을 모은다. 예외를 밖으로 내보내지 않는다.
+
+        on_progress(날짜, 페이지, 이번 페이지 건수, 누적 건수) 를 주면 페이지마다
+        불러 준다. 수천 건을 받는 동안 화면이 멈춘 것처럼 보이지 않게 하기 위한 것이다.
+        """
         self.last_error = ""
         results: list[TeeTime] = []
         pages_cfg = self.request_cfg.get("pages") or {}
         page_start = int(pages_cfg.get("start", 1))
         page_max = int(pages_cfg.get("max", 1))
         stop_empty = bool(pages_cfg.get("stop_when_empty", True))
+        # 마지막 페이지를 넘어가도 같은 목록을 계속 주는 사이트가 있다. 그대로
+        # 믿으면 같은 티타임이 페이지 수만큼 쌓인다. 내용이 앞서 본 것과 같으면 멈춘다.
+        stop_repeat = bool(pages_cfg.get("stop_when_repeated", True))
+        # 설정을 잘못 적었을 때 사이트를 끝없이 두드리지 않도록 하는 상한.
+        max_requests = int(self.request_cfg.get("max_requests", 0)) or None
         delay = float(self.request_cfg.get("delay_seconds", 1.0))
         url_tpl = self.request_cfg.get("url") or ""
 
@@ -350,8 +382,13 @@ class WebSource:
         requests_made = 0
         errors: list[str] = []
 
+        stopped: list[str] = []
         for d in dates or [date.today()]:
+            seen_pages: set[str] = set()
             for page in range(page_start, page_start + page_max):
+                if max_requests and requests_made >= max_requests:
+                    stopped.append(f"{d}: 요청 상한 {max_requests}회에 걸려 멈췄습니다")
+                    break
                 context = {"date": d, "page": page}
                 url = self._render(url_tpl, context)
 
@@ -383,9 +420,22 @@ class WebSource:
                     errors.append(f"파싱 실패 ({url}): {exc}")
                     break
 
-                results.extend(rows)
                 if stop_empty and not rows:
+                    if on_progress:
+                        on_progress(d, page, 0, len(results))
                     break
+
+                if stop_repeat:
+                    mark = _page_mark(rows)
+                    if mark in seen_pages:
+                        stopped.append(
+                            f"{d}: {page}페이지가 앞 페이지와 같은 내용이라 멈췄습니다")
+                        break
+                    seen_pages.add(mark)
+
+                results.extend(rows)
+                if on_progress:
+                    on_progress(d, page, len(rows), len(results))
                 if delay > 0:
                     time.sleep(delay)
 
@@ -393,6 +443,7 @@ class WebSource:
             "requests": requests_made,
             "rows": len(results),
             "errors": errors,
+            "stopped": stopped,
         }
         if errors and not results:
             self.last_error = errors[0]
