@@ -90,7 +90,9 @@ def main() -> int:
     ap.add_argument("--dates", help="날짜를 직접 지정: 2026-09-19,2026-09-20")
     ap.add_argument("--config", default="", help="설정 파일을 직접 지정")
     ap.add_argument("--max-pages", type=int, default=0,
-                    help="날짜당 최대 페이지 수 (시험용으로 줄일 때)")
+                    help="묶음당 최대 페이지 수 (시험용으로 줄일 때)")
+    ap.add_argument("--no-split", action="store_true",
+                    help="나누지 않고 한 번에 받는다 (비교용)")
     ap.add_argument("--delay", type=float, default=0.0,
                     help="요청 간격(초). 설정값보다 줄이지는 않습니다")
     ap.add_argument("--dry-run", action="store_true",
@@ -105,10 +107,17 @@ def main() -> int:
     dates = parse_dates(args)
     req = cfg.setdefault("request", {})
 
+    if args.no_split:
+        req.pop("split", None)
+
     if args.dry_run:
         dates = dates[:1]
         req.setdefault("pages", {})["max"] = 1
         req["max_requests"] = 1
+        # 나누어 받는 설정이면 첫 묶음만 본다. 묶음마다 1페이지씩 받으면
+        # "한 페이지만 확인" 이라는 뜻이 아니게 된다.
+        if req.get("split", {}).get("values"):
+            req["split"] = dict(req["split"], values=req["split"]["values"][:1])
     elif args.max_pages:
         req.setdefault("pages", {})["max"] = args.max_pages
 
@@ -122,6 +131,12 @@ def main() -> int:
     print(f"날짜 {len(dates)}일치: {dates[0]} ~ {dates[-1]}"
           f"  (날짜당 최대 {pages_cfg.get('max', 1)}페이지,"
           f" 요청 간격 {req.get('delay_seconds', 1.0)}초)")
+    split = req.get("split") or {}
+    if split.get("values"):
+        names = [str(split.get("labels", {}).get(str(v), v))
+                 for v in split["values"]]
+        print(f"하루치를 {len(names)}개로 나누어 받습니다: {', '.join(names)}")
+        print("  묶음이 짧을수록 받는 사이에 목록이 흔들릴 틈이 줄어듭니다.")
     if src.respect_robots:
         print("robots.txt 를 확인하고 막힌 주소는 건너뜁니다.")
     print()
@@ -129,11 +144,12 @@ def main() -> int:
     started = time.time()
     per_date: Counter = Counter()
 
-    def progress(d: date, page: int, rows: int, total: int):
+    def progress(d: date, page: int, rows: int, total: int, bucket: str = ""):
         per_date[d] += rows
         elapsed = int(time.time() - started)
         tail = "  (빈 페이지 — 여기서 멈춤)" if not rows else ""
-        print(f"  {d}  {page:3d}페이지  {rows:4d}건   누적 {total:6,d}건"
+        where = f"{d} {bucket}" if bucket else str(d)
+        print(f"  {where:22s} {page:3d}페이지  {rows:4d}건   누적 {total:6,d}건"
               f"   {elapsed // 60}분{elapsed % 60:02d}초{tail}")
 
     rows = src.fetch(dates, on_progress=progress)

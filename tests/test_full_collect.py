@@ -135,7 +135,8 @@ class TestPaging(unittest.TestCase):
         """수천 건을 받는 동안 진행 상황을 알 수 있어야 한다."""
         seen = []
         src = WebSource(config_for(self.base, "/list"))
-        src.fetch([DAY], on_progress=lambda d, p, n, total: seen.append((p, n, total)))
+        src.fetch([DAY],
+                  on_progress=lambda d, p, n, total, b='': seen.append((p, n, total)))
         self.assertGreaterEqual(len(seen), 3)
         self.assertEqual(seen[0][0], 1)
         self.assertEqual([n for _, n, _ in seen[:3]], [PER_PAGE, PER_PAGE, TOTAL % PER_PAGE])
@@ -202,6 +203,76 @@ class TestShiftingPages(unittest.TestCase):
         rows = src.fetch([DAY])
         self.assertTrue(src.last_stats["stopped"])
         self.assertEqual(len({t.raw["row_id"] for t in rows}), TOTAL)
+
+
+class TestSplitCollection(unittest.TestCase):
+    """하루치를 여러 묶음으로 나누어 받기.
+
+    살아 있는 목록을 페이지 번호로 넘기면, 앞쪽에서 매물이 빠질 때 뒤 행이
+    앞으로 당겨져 **아예 못 보고 지나가는** 행이 생긴다. 이 누락은 중복
+    제거로 막을 수 없다 — 받은 적이 없기 때문이다.
+
+    묶음이 짧을수록 받는 사이에 목록이 흔들릴 틈이 줄어든다.
+    """
+
+    def setUp(self):
+        from tests import fake_paged_site
+        self.mod = fake_paged_site
+        self.srv, self.base = start()
+        self._reset()
+
+    def tearDown(self):
+        self.srv.shutdown()
+
+    def _reset(self):
+        """목록을 아무도 건드리지 않은 상태로 되돌린다."""
+        self.mod.LIVE = self.mod.LiveList()
+
+    def _collect(self, **request) -> set:
+        cfg = config_for(self.base, "/live", **request)
+        rows = WebSource(cfg).fetch([DAY])
+        return {t.raw["row_id"] for t in rows}
+
+    def test_splitting_loses_fewer_rows(self):
+        """나눠 받으면 한 번에 받을 때보다 더 많이 건진다.
+
+        같은 목록·같은 흔들림에서 두 방식을 각각 돌려 비교한다.
+        """
+        self._reset()
+        whole = self._collect()
+        self._reset()
+        parts = self._collect(split={"field": "sector",
+                                     "values": ["A", "B", "C"]})
+        self.assertGreater(
+            len(parts), len(whole),
+            f"나눠 받아도 나아지지 않았다 (한번에 {len(whole)} / 나눠 {len(parts)})")
+
+    def test_split_buckets_are_recorded(self):
+        cfg = config_for(self.base, "/live",
+                         split={"field": "sector", "values": ["A", "B", "C"]})
+        src = WebSource(cfg)
+        src.fetch([DAY])
+        self.assertEqual(src.last_stats["buckets"], ["A", "B", "C"])
+
+    def test_progress_names_the_bucket(self):
+        """어느 묶음을 받는 중인지 보여야 한다. 몇 분씩 걸리는 작업이다."""
+        seen = []
+        cfg = config_for(self.base, "/live",
+                         split={"field": "sector", "values": ["A", "B"],
+                                "labels": {"A": "가지역", "B": "나지역"}})
+        WebSource(cfg).fetch(
+            [DAY], on_progress=lambda d, p, n, t, b="": seen.append(b))
+        self.assertIn("가지역", seen)
+        self.assertIn("나지역", seen)
+
+    def test_dedupe_spans_buckets(self):
+        """묶음 경계에 걸친 매물은 양쪽에 나올 수 있다. 날짜 단위로 걸러야 한다."""
+        cfg = config_for(self.base, "/list",
+                         split={"field": "sector", "values": ["x", "y"]})
+        rows = WebSource(cfg).fetch([DAY])
+        ids = [t.raw["row_id"] for t in rows]
+        self.assertEqual(len(ids), len(set(ids)),
+                         "같은 매물이 두 묶음에서 각각 저장됐다")
 
 
 class TestCsvKeepsRowId(unittest.TestCase):

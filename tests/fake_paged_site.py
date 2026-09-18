@@ -10,6 +10,11 @@
   /shift     : 매물이 실시간으로 드나들어 **페이지 경계가 밀리는** 사이트.
                멀리 떨어진 두 페이지가 우연히 같은 내용이 되고, 같은 매물이
                여러 페이지에 걸쳐 들어온다. 골팡이 이렇다.
+  /live      : 목록이 **받는 도중에 줄어드는** 사이트. 요청할 때마다 앞쪽 매물이
+               하나씩 빠지고, 뒤 행이 앞으로 당겨진다. 페이지 번호로 넘기면
+               당겨진 행을 아예 못 보고 지나간다(누락). 이 누락은 중복 제거로는
+               못 막는다 — 애초에 받은 적이 없기 때문이다.
+               sector 로 나누어 받으면 묶음이 짧아 누락이 줄어든다.
 """
 from __future__ import annotations
 
@@ -77,6 +82,45 @@ def page_html(page: int, d: date, *, clamp: bool = False,
     return HEAD + "".join(rows) + FOOT
 
 
+# ---------------------------------------------------------------------------
+# 받는 도중에 줄어드는 목록
+# ---------------------------------------------------------------------------
+
+# 매물 60개를 지역 3개로 나눠 둔다. 지역을 지정하면 그 지역 것만 준다.
+LIVE_TOTAL = 180
+LIVE_PER_PAGE = 10
+
+
+def _live_sector(i: int) -> str:
+    return ["A", "B", "C"][i % 3]
+
+
+class LiveList:
+    """요청을 받을 때마다 앞쪽에서 매물이 하나씩 빠지는 목록."""
+
+    def __init__(self):
+        self.gone: set[int] = set()
+        self.hits = 0
+
+    def page(self, page: int, sector: str) -> list[int]:
+        # 매물은 **목록 전체에서** 빠진다. 지금 어느 지역을 보고 있든 상관없다.
+        # 이게 중요하다. 빠진 것이 지금 보고 있는 묶음 안이면 뒤 행이 당겨져
+        # 건너뛰어지고, 다른 묶음이면 지금 읽기에는 아무 영향이 없다.
+        # 그래서 묶음을 나눌수록 "보고 있는 곳에서 빠질" 확률이 줄어든다.
+        alive_all = [i for i in range(LIVE_TOTAL) if i not in self.gone]
+        if alive_all:
+            self.gone.add(alive_all[self.hits % len(alive_all)])
+        self.hits += 1
+
+        alive = [i for i in range(LIVE_TOTAL)
+                 if i not in self.gone and (not sector or _live_sector(i) == sector)]
+        start = (page - 1) * LIVE_PER_PAGE
+        return alive[start:start + LIVE_PER_PAGE]
+
+
+LIVE = LiveList()
+
+
 class Handler(BaseHTTPRequestHandler):
     def log_message(self, *a):
         pass
@@ -109,6 +153,11 @@ class Handler(BaseHTTPRequestHandler):
             body = page_html(page, d, wrong_date=True)
         elif path == "/shift":
             body = page_html(page, d, shift=True)
+        elif path == "/live":
+            sector = form.get("sector", [""])[0]
+            items = LIVE.page(page, sector)
+            body = (HEAD + "".join(_row(i, d) for i in items) + FOOT
+                    if items else EMPTY)
         else:
             self.send_response(404)
             self.end_headers()

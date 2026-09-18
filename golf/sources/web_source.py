@@ -346,8 +346,19 @@ class WebSource:
     def fetch(self, dates: list[date], *, on_progress=None) -> list[TeeTime]:
         """날짜별로 페이지를 돌며 티타임을 모은다. 예외를 밖으로 내보내지 않는다.
 
-        on_progress(날짜, 페이지, 이번 페이지 건수, 누적 건수) 를 주면 페이지마다
-        불러 준다. 수천 건을 받는 동안 화면이 멈춘 것처럼 보이지 않게 하기 위한 것이다.
+        on_progress(날짜, 페이지, 이번 페이지 건수, 누적 건수, 묶음이름) 를 주면
+        페이지마다 불러 준다. 수천 건을 받는 동안 화면이 멈춘 것처럼 보이지 않게
+        하기 위한 것이다. 묶음이름은 나누어 받을 때만 값이 있다.
+
+        request.split 을 주면 하루치를 여러 묶음으로 나누어 받는다. 살아 있는
+        목록을 페이지 번호로 넘기면 구조적으로 놓치는 행이 생기기 때문이다.
+
+            커서가 k페이지를 보는 중에
+              앞쪽에 매물이 추가되면 → 뒤 행이 밀려 다시 실림 → 번호로 걸러짐
+              앞쪽에서 매물이 빠지면 → 뒤 행이 앞으로 당겨짐 → 그 행은 못 봄
+
+        한 묶음이 짧을수록 그 사이에 목록이 흔들릴 틈이 줄어든다. 골팡은 하루
+        102페이지를 지역 5개로 나누면 묶음마다 2~35페이지가 된다.
         """
         self.last_error = ""
         results: list[TeeTime] = []
@@ -362,6 +373,12 @@ class WebSource:
         max_requests = int(self.request_cfg.get("max_requests", 0)) or None
         delay = float(self.request_cfg.get("delay_seconds", 1.0))
         url_tpl = self.request_cfg.get("url") or ""
+
+        # 하루치를 나누어 받을 기준. 없으면 한 번에 받는다.
+        split_cfg = self.request_cfg.get("split") or {}
+        split_values = list(split_cfg.get("values") or [])
+        split_labels = dict(split_cfg.get("labels") or {})
+        buckets = split_values or [None]
 
         if not url_tpl:
             self.last_error = (
@@ -385,83 +402,98 @@ class WebSource:
         errors: list[str] = []
 
         stopped: list[str] = []
+        hit_cap = False
         for d in dates or [date.today()]:
-            prev_mark = ""            # 바로 앞 페이지의 내용
+            # 걸러 내기는 날짜 단위로 한다. 묶음 경계에 걸친 매물이 양쪽에
+            # 나올 수 있어, 묶음마다 따로 세면 그것을 놓친다.
             seen_rows: set[str] = set()
-            for page in range(page_start, page_start + page_max):
-                if max_requests and requests_made >= max_requests:
-                    stopped.append(f"{d}: 요청 상한 {max_requests}회에 걸려 멈췄습니다")
+            if hit_cap:
+                break
+            for bucket in buckets:
+                label = split_labels.get(str(bucket), str(bucket)) if bucket is not None else ""
+                prev_mark = ""            # 바로 앞 페이지의 내용 (묶음마다 새로)
+                if hit_cap:
                     break
-                context = {"date": d, "page": page}
-                url = self._render(url_tpl, context)
-
-                if not self._robots_allows(url):
-                    errors.append(f"robots.txt가 막은 주소: {url}")
-                    break
-
-                body = self.request_cfg.get("body")
-                if isinstance(body, str):
-                    body = self._render(body, context)
-                elif isinstance(body, dict):
-                    body = {k: self._render(str(v), context) for k, v in body.items()}
-                    body = urllib.parse.urlencode(body)
-
-                try:
-                    text = self.client.get(
-                        url,
-                        method=(self.request_cfg.get("method") or "GET").upper(),
-                        body=body,
-                    )
-                    requests_made += 1
-                except Exception as exc:
-                    errors.append(f"{url} → {exc}")
-                    break
-
-                try:
-                    rows = self._parse(text, context)
-                except Exception as exc:
-                    errors.append(f"파싱 실패 ({url}): {exc}")
-                    break
-
-                if stop_empty and not rows:
-                    if on_progress:
-                        on_progress(d, page, 0, len(results))
-                    break
-
-                if stop_repeat:
-                    # **바로 앞** 페이지와 같을 때만 멈춘다. 마지막 페이지를 계속
-                    # 돌려주는 사이트가 이 모양이다.
-                    #
-                    # 앞서 본 아무 페이지와나 비교하면 안 된다. 매물이 실시간으로
-                    # 드나드는 사이트는 페이지 경계가 밀려서 멀리 떨어진 페이지가
-                    # 우연히 같아질 수 있고, 그러면 목록 한가운데서 조용히 멈춘다.
-                    # 골팡에서 실제로 104페이지 중 48페이지에서 멈춰 절반을 놓쳤다.
-                    mark = _page_mark(rows)
-                    if mark and mark == prev_mark:
+                for page in range(page_start, page_start + page_max):
+                    if max_requests and requests_made >= max_requests:
                         stopped.append(
-                            f"{d}: {page}페이지가 바로 앞 페이지와 같은 내용이라 멈췄습니다")
+                            f"{d}: 요청 상한 {max_requests}회에 걸려 멈췄습니다")
+                        hit_cap = True
                         break
-                    prev_mark = mark
+                    context = {"date": d, "page": page, "split": bucket}
+                    url = self._render(url_tpl, context)
 
-                # 페이지가 밀리면서 같은 매물이 여러 페이지에 걸쳐 들어온다.
-                # 멈추는 대신 여기서 걸러 낸다. 매물 번호가 있을 때만 거른다 —
-                # 없으면 겉보기에 같아도 다른 매물일 수 있어 함부로 버리지 않는다.
-                fresh = []
-                for t in rows:
-                    rid = t.raw.get("row_id") if t.raw else None
-                    if rid:
-                        if rid in seen_rows:
-                            duplicates += 1
-                            dups_by_date[d] = dups_by_date.get(d, 0) + 1
-                            continue
-                        seen_rows.add(rid)
-                    fresh.append(t)
+                    if not self._robots_allows(url):
+                        errors.append(f"robots.txt가 막은 주소: {url}")
+                        break
 
-                results.extend(fresh)
-                if on_progress:
-                    on_progress(d, page, len(fresh), len(results))
-                if delay > 0:
-                    time.sleep(delay)
+                    body = self.request_cfg.get("body")
+                    if isinstance(body, str):
+                        body = self._render(body, context)
+                    elif isinstance(body, dict):
+                        body = {k: self._render(str(v), context)
+                                for k, v in body.items()}
+                        body = urllib.parse.urlencode(body)
+
+                    try:
+                        text = self.client.get(
+                            url,
+                            method=(self.request_cfg.get("method") or "GET").upper(),
+                            body=body,
+                        )
+                        requests_made += 1
+                    except Exception as exc:
+                        errors.append(f"{url} → {exc}")
+                        break
+
+                    try:
+                        rows = self._parse(text, context)
+                    except Exception as exc:
+                        errors.append(f"파싱 실패 ({url}): {exc}")
+                        break
+
+                    if stop_empty and not rows:
+                        if on_progress:
+                            on_progress(d, page, 0, len(results), label)
+                        break
+
+                    if stop_repeat:
+                        # **바로 앞** 페이지와 같을 때만 멈춘다. 마지막 페이지를
+                        # 계속 돌려주는 사이트가 이 모양이다.
+                        #
+                        # 앞서 본 아무 페이지와나 비교하면 안 된다. 매물이
+                        # 실시간으로 드나드는 사이트는 페이지 경계가 밀려서 멀리
+                        # 떨어진 페이지가 우연히 같아질 수 있고, 그러면 목록
+                        # 한가운데서 조용히 멈춘다. 골팡에서 실제로 104페이지 중
+                        # 48페이지에서 멈춰 절반을 놓쳤다.
+                        mark = _page_mark(rows)
+                        if mark and mark == prev_mark:
+                            where = f"{d} {label}".strip()
+                            stopped.append(
+                                f"{where}: {page}페이지가 바로 앞 페이지와"
+                                f" 같은 내용이라 멈췄습니다")
+                            break
+                        prev_mark = mark
+
+                    # 페이지가 밀리면서 같은 매물이 여러 페이지에 걸쳐 들어온다.
+                    # 멈추는 대신 여기서 걸러 낸다. 매물 번호가 있을 때만 거른다 —
+                    # 없으면 겉보기에 같아도 다른 매물일 수 있어 함부로 버리지 않는다.
+                    fresh = []
+                    for t in rows:
+                        rid = t.raw.get("row_id") if t.raw else None
+                        if rid:
+                            if rid in seen_rows:
+                                duplicates += 1
+                                dups_by_date[d] = dups_by_date.get(d, 0) + 1
+                                continue
+                            seen_rows.add(rid)
+                        fresh.append(t)
+
+                    results.extend(fresh)
+                    if on_progress:
+                        on_progress(d, page, len(fresh), len(results), label)
+                    if delay > 0:
+                        time.sleep(delay)
 
         self.last_stats = {
             "requests": requests_made,
@@ -472,6 +504,7 @@ class WebSource:
             # 날짜별로도 남긴다. 합계만 있으면 어느 날짜에서 페이지가 많이
             # 흔들렸는지 알 수 없어, 보고서를 쓸 때 출력에서 역산해야 한다.
             "duplicates_by_date": dups_by_date,
+            "buckets": [str(b) for b in buckets if b is not None],
         }
         if errors and not results:
             self.last_error = errors[0]
