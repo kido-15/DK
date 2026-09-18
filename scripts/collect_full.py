@@ -144,6 +144,10 @@ def main() -> int:
           f"   {int(time.time() - started)}초")
     print(f"{'=' * 64}")
 
+    dups = stats.get("duplicates") or 0
+    if dups:
+        print(f"  여러 페이지에 걸쳐 들어온 같은 매물 {dups:,}건을 걸렀습니다"
+              f" (받은 행 {len(rows) + dups:,} → 남긴 행 {len(rows):,})")
     for line in stats.get("stopped") or []:
         print(f"  멈춤: {line}")
     for err in (stats.get("errors") or [])[:5]:

@@ -47,6 +47,7 @@ def config_for(base: str, path: str, **request) -> dict:
         "request": req,
         "list_selector": "table.type2 tr",
         "fields": {
+            "row_id": {"attr": "id"},
             "course_name": {"selector": "td:nth-child(5)"},
             "play_date": {"selector": "td:nth-child(2)"},
             "tee_time": {"selector": "td:nth-child(3)"},
@@ -152,6 +153,48 @@ class TestPaging(unittest.TestCase):
         self.assertEqual(len(rows), TOTAL * 2)
 
 
+class TestShiftingPages(unittest.TestCase):
+    """매물이 실시간으로 드나들어 페이지 경계가 밀리는 사이트.
+
+    골팡이 이렇다. 여기서 "앞서 본 아무 페이지와 같으면 멈춘다" 로 하면
+    목록 한가운데서 조용히 멈춘다. 실제로 104페이지 중 48페이지에서 멈춰
+    절반을 놓쳤다.
+    """
+
+    @classmethod
+    def setUpClass(cls):
+        cls.srv, cls.base = start()
+
+    @classmethod
+    def tearDownClass(cls):
+        cls.srv.shutdown()
+
+    def test_does_not_stop_in_the_middle(self):
+        """2페이지와 4페이지가 우연히 같아도 5페이지까지 간다."""
+        src = WebSource(config_for(self.base, "/shift"))
+        rows = src.fetch([DAY])
+        self.assertFalse(src.last_stats["stopped"],
+                         f"목록 한가운데서 멈췄다: {src.last_stats['stopped']}")
+        got = {t.raw["row_id"] for t in rows}
+        self.assertEqual(len(got), TOTAL, "5페이지까지 가면 25개 매물이 모두 나온다")
+
+    def test_overlapping_rows_are_filtered_not_stopped(self):
+        """여러 페이지에 걸쳐 들어온 같은 매물은 멈추는 대신 걸러 낸다."""
+        src = WebSource(config_for(self.base, "/shift"))
+        rows = src.fetch([DAY])
+        ids = [t.raw["row_id"] for t in rows]
+        self.assertEqual(len(ids), len(set(ids)), "같은 매물이 두 번 들어왔다")
+        self.assertGreater(src.last_stats["duplicates"], 0,
+                           "겹친 행이 있었는데 세지 않았다")
+
+    def test_clamped_site_still_stops(self):
+        """바로 앞 페이지와 같은 경우는 여전히 멈춘다. 그게 진짜 끝 신호다."""
+        src = WebSource(config_for(self.base, "/clamp"))
+        rows = src.fetch([DAY])
+        self.assertTrue(src.last_stats["stopped"])
+        self.assertEqual(len({t.raw["row_id"] for t in rows}), TOTAL)
+
+
 class TestYearlessDates(unittest.TestCase):
     """연도가 안 적힌 날짜를 어느 해로 볼 것인가.
 
@@ -233,7 +276,6 @@ class TestGolfpangConfig(unittest.TestCase):
         pages = self.cfg["request"]["pages"]
         self.assertGreater(pages["max"], self.PAGES_PER_DATE,
                            "하루 101페이지라 이보다 작으면 전량이 안 된다")
-        self.assertTrue(pages["stop_when_repeated"])
         self.assertTrue(self.cfg["request"].get("max_requests"))
 
     def test_request_cap_covers_the_documented_week(self):
@@ -246,6 +288,26 @@ class TestGolfpangConfig(unittest.TestCase):
         self.assertGreaterEqual(
             self.cfg["request"]["max_requests"], need,
             f"--days 7 에는 요청 {need}회가 필요하다")
+
+    def test_end_of_list_is_found_by_the_empty_page(self):
+        """골팡에서 끝을 알려 주는 것은 빈 표다. 같은 내용 검사가 아니다.
+
+        실제로 확인한 것(2026-09-18):
+          - 마지막 페이지(101)를 넘긴 102·103·200 페이지는 머리글만 있는 빈 표였고
+            응답이 md5까지 같았다. 마지막 페이지를 반복해 주지 않는다.
+          - 반면 목록은 매물이 실시간으로 드나들어 페이지 경계가 밀린다. 60페이지를
+            연속으로 받아 보면 6,000행 중 612행이 앞뒤 페이지와 겹쳤다.
+            그래서 서로 다른 페이지가 우연히 같은 내용으로 보일 수 있고,
+            2026-09-20 수집이 104페이지 중 48페이지에서 그렇게 멈춰 절반을 놓쳤다.
+
+        stop_when_repeated 는 이 사이트에서 얻는 것이 없고 조용히 절반을 버린다.
+        겹쳐 들어온 행은 멈추는 대신 row_id 로 걸러 낸다.
+        """
+        pages = self.cfg["request"]["pages"]
+        self.assertTrue(pages["stop_when_empty"],
+                        "빈 페이지로 멈추지 않으면 끝을 알 수 없다")
+        self.assertFalse(pages["stop_when_repeated"],
+                         "골팡에서는 목록 한가운데서 멈추게 만든다")
 
     def test_page_and_date_are_templated(self):
         body = self.cfg["request"]["body"]

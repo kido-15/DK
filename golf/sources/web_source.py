@@ -380,11 +380,13 @@ class WebSource:
             return []
 
         requests_made = 0
+        duplicates = 0
         errors: list[str] = []
 
         stopped: list[str] = []
         for d in dates or [date.today()]:
-            seen_pages: set[str] = set()
+            prev_mark = ""            # 바로 앞 페이지의 내용
+            seen_rows: set[str] = set()
             for page in range(page_start, page_start + page_max):
                 if max_requests and requests_made >= max_requests:
                     stopped.append(f"{d}: 요청 상한 {max_requests}회에 걸려 멈췄습니다")
@@ -426,16 +428,36 @@ class WebSource:
                     break
 
                 if stop_repeat:
+                    # **바로 앞** 페이지와 같을 때만 멈춘다. 마지막 페이지를 계속
+                    # 돌려주는 사이트가 이 모양이다.
+                    #
+                    # 앞서 본 아무 페이지와나 비교하면 안 된다. 매물이 실시간으로
+                    # 드나드는 사이트는 페이지 경계가 밀려서 멀리 떨어진 페이지가
+                    # 우연히 같아질 수 있고, 그러면 목록 한가운데서 조용히 멈춘다.
+                    # 골팡에서 실제로 104페이지 중 48페이지에서 멈춰 절반을 놓쳤다.
                     mark = _page_mark(rows)
-                    if mark in seen_pages:
+                    if mark and mark == prev_mark:
                         stopped.append(
-                            f"{d}: {page}페이지가 앞 페이지와 같은 내용이라 멈췄습니다")
+                            f"{d}: {page}페이지가 바로 앞 페이지와 같은 내용이라 멈췄습니다")
                         break
-                    seen_pages.add(mark)
+                    prev_mark = mark
 
-                results.extend(rows)
+                # 페이지가 밀리면서 같은 매물이 여러 페이지에 걸쳐 들어온다.
+                # 멈추는 대신 여기서 걸러 낸다. 매물 번호가 있을 때만 거른다 —
+                # 없으면 겉보기에 같아도 다른 매물일 수 있어 함부로 버리지 않는다.
+                fresh = []
+                for t in rows:
+                    rid = t.raw.get("row_id") if t.raw else None
+                    if rid:
+                        if rid in seen_rows:
+                            duplicates += 1
+                            continue
+                        seen_rows.add(rid)
+                    fresh.append(t)
+
+                results.extend(fresh)
                 if on_progress:
-                    on_progress(d, page, len(rows), len(results))
+                    on_progress(d, page, len(fresh), len(results))
                 if delay > 0:
                     time.sleep(delay)
 
@@ -444,6 +466,7 @@ class WebSource:
             "rows": len(results),
             "errors": errors,
             "stopped": stopped,
+            "duplicates": duplicates,
         }
         if errors and not results:
             self.last_error = errors[0]
@@ -496,6 +519,13 @@ class WebSource:
         slots_raw = extract(rec, fields.get("slots"), context) or ""
         slots_digits = re.sub(r"[^\d]", "", slots_raw)
 
+        # 그 사이트에서 이 매물을 가리키는 번호. 페이지가 밀리면서 같은 매물이
+        # 여러 페이지에 들어올 때, 겉모습이 아니라 이 번호로 같은 것임을 안다.
+        raw: dict[str, Any] = {}
+        row_id = extract(rec, fields.get("row_id"), context)
+        if row_id:
+            raw["row_id"] = row_id
+
         return TeeTime(
             course_name=name,
             play_date=d,
@@ -505,7 +535,7 @@ class WebSource:
             booking_url=extract(rec, fields.get("booking_url"), context) or "",
             slots=int(slots_digits) if slots_digits else None,
             hole_info=extract(rec, fields.get("hole_info"), context) or "",
-            raw={},
+            raw=raw,
         )
 
 

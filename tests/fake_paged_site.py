@@ -7,6 +7,9 @@
   /clamp     : 마지막 페이지를 넘어가도 **마지막 페이지를 계속 준다**.
                (국내 목록 화면에 흔하다. 그대로 믿으면 같은 매물이 계속 쌓인다)
   /wrongdate : 요청한 날짜와 다른 날짜의 행을 섞어 준다.
+  /shift     : 매물이 실시간으로 드나들어 **페이지 경계가 밀리는** 사이트.
+               멀리 떨어진 두 페이지가 우연히 같은 내용이 되고, 같은 매물이
+               여러 페이지에 걸쳐 들어온다. 골팡이 이렇다.
 """
 from __future__ import annotations
 
@@ -43,8 +46,24 @@ def _row(i: int, d: date) -> str:
             f"<td>{i}</td></tr>")
 
 
+# 페이지가 밀리는 사이트. 2페이지와 4페이지가 우연히 같은 내용이 되도록 짰다.
+# 앞서 본 아무 페이지와나 비교해 멈추면, 여기서 4페이지에 멈춰 5페이지를 놓친다.
+SHIFT_PAGES = {
+    1: [0, 1, 2, 3, 4, 5, 6, 7, 8, 9],
+    2: [10, 11, 12, 13, 14, 15, 16, 17, 18, 19],
+    3: [15, 16, 17, 18, 19, 20, 21, 22, 23, 24],   # 앞 페이지와 절반 겹침
+    4: [10, 11, 12, 13, 14, 15, 16, 17, 18, 19],   # 2페이지와 우연히 같음
+    5: [20, 21, 22, 23, 24],
+}
+
+
 def page_html(page: int, d: date, *, clamp: bool = False,
-              wrong_date: bool = False) -> str:
+              wrong_date: bool = False, shift: bool = False) -> str:
+    if shift:
+        items = SHIFT_PAGES.get(page)
+        if not items:
+            return EMPTY
+        return HEAD + "".join(_row(i, d) for i in items) + FOOT
     last = (TOTAL + PER_PAGE - 1) // PER_PAGE
     if page > last:
         if not clamp:
@@ -88,6 +107,8 @@ class Handler(BaseHTTPRequestHandler):
             body = page_html(page, d, clamp=True)
         elif path == "/wrongdate":
             body = page_html(page, d, wrong_date=True)
+        elif path == "/shift":
+            body = page_html(page, d, shift=True)
         else:
             self.send_response(404)
             self.end_headers()
