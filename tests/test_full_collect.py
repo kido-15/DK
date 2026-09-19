@@ -239,6 +239,72 @@ class TestGolfpangConfig(unittest.TestCase):
         self.assertIn("{page}", body["pageNum"])
         self.assertIn("{date", body["rd_date"])
 
+    # 2026-09-19 응답에서 그대로 떼어 온 행 하나. 실물은 12칸이고,
+    # 그린피 뒤에 닉네임·캐디유무·구분·조회 네 칸이 더 붙는다.
+    REAL_ROW = (
+        '<table class="type2"><tbody>'
+        '<tr id="tr_220219723" style="background-color:#EEF9F0">'
+        '<td onclick="showCon(\'220219723\')" style="cursor:pointer">충청</td>'
+        '<td onclick="showCon(\'220219723\')" style="cursor:pointer">09월19일 (토)</td>'
+        '<td onclick="showCon(\'220219723\')" style="cursor:pointer">18:51</td>'
+        '<td onclick="showCon(\'220219723\')" style="cursor:pointer"></td>'
+        '<td onclick="showCon(\'220219723\')" style="cursor:pointer" align="left">'
+        "대영베이스</td>"
+        '<td onclick="showCon(\'220219723\')" style="cursor:pointer">18홀</td>'
+        "<td></td>"
+        '<td onclick="showCon(\'220219723\')" style="cursor:pointer">'
+        '<span class="price">79,000</span>원</td>'
+        '<td><img src="/images/ico/i_pang.png" class="btn_ico" alt="팡">골팡 강과장</td>'
+        '<td class="state">운전캐디</td>'
+        "<td>양도</td><td>2</td>"
+        "</tr></tbody></table>")
+
+    def test_real_row_has_twelve_columns(self):
+        """그린피 뒤에도 칸이 네 개 더 있다. 뒤에서부터 세면 어긋난다."""
+        row = htmlsel.parse(self.REAL_ROW).select_one("tbody tr")
+        self.assertEqual(len(row.select("td")), 12)
+        self.assertEqual(row.select_one("td:last-child").text, "2")
+
+    def test_selectors_hit_the_right_columns_on_a_real_row(self):
+        """실물 행에서 각 칸이 제자리에 들어오는지.
+
+        골프장 자리에 '충청' 같은 지역 이름이 오면 칸 번호가 틀린 것이다.
+        """
+        row = htmlsel.parse(self.REAL_ROW).select_one("tbody tr")
+        fields = self.cfg["fields"]
+        self.assertEqual(row.select_one(fields["course_name"]["selector"]).text,
+                         "대영베이스")
+        self.assertEqual(row.select_one(fields["tee_time"]["selector"]).text, "18:51")
+        self.assertEqual(row.select_one(fields["green_fee"]["selector"]).text, "79,000")
+        self.assertEqual(row.select_one(fields["hole_info"]["selector"]).text, "18홀")
+        self.assertEqual(row.select_one(fields["play_date"]["selector"]).text,
+                         "09월19일 (토)")
+
+    def test_row_without_year_falls_back_to_the_requested_date(self):
+        """부킹일 칸에는 연도가 없다. 요청한 날짜로 풀려야 한다."""
+        src = WebSource(self.cfg)
+        rows = src._parse(self.REAL_ROW, {"date": date(2026, 9, 19)})
+        self.assertEqual(len(rows), 1)
+        self.assertEqual(rows[0].play_date, date(2026, 9, 19))
+        self.assertEqual(rows[0].course_name, "대영베이스")
+        self.assertEqual(rows[0].green_fee, 79000)
+
+    def test_nickname_column_is_not_collected(self):
+        """목록 9번 칸에는 판매자 닉네임이 들어 있다. 수집하지 않는다."""
+        for f in self.cfg["fields"].values():
+            self.assertNotIn("nth-child(9)", str(f.get("selector", "")))
+        src = WebSource(self.cfg)
+        tee = src._parse(self.REAL_ROW, {"date": date(2026, 9, 19)})[0]
+        blob = " ".join(str(v) for v in tee.to_dict().values())
+        self.assertNotIn("강과장", blob)
+
+    def test_broken_closing_tag_is_tolerated(self):
+        """실물 조각은 </div> 가 아니라 </di> 로 닫힌다. 그래도 행이 나와야 한다."""
+        html = ('<div class="table_box_list">'
+                + self.REAL_ROW.replace("</table>", "</table></di></div>"))
+        src = WebSource(self.cfg)
+        self.assertEqual(len(src._parse(html, {"date": date(2026, 9, 19)})), 1)
+
     def test_selectors_parse_and_hit_the_right_columns(self):
         """설정의 선택자가 골팡 목록 구조에서 제 칸을 집는지."""
         html = ('<table class="type2"><tbody><tr>'
@@ -263,8 +329,9 @@ class TestGolfpangConfig(unittest.TestCase):
         self.assertEqual(rows, [])
 
     def test_empty_result_row_is_skipped(self):
+        """마지막 페이지를 넘기면 실물은 이 한 줄짜리 표를 준다."""
         html = ('<table class="type2"><tbody><tr>'
-                '<td colspan="9">검색된 티타임이 없습니다.</td></tr></tbody></table>')
+                '<td colspan="12">리스트가 없습니다.</td></tr></tbody></table>')
         src = WebSource(self.cfg)
         self.assertEqual(src._parse(html, {"date": DAY}), [])
 
