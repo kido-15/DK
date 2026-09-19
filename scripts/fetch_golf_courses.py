@@ -29,6 +29,7 @@ from __future__ import annotations
 import argparse
 import json
 import os
+import re
 import sys
 import time
 import urllib.error
@@ -39,7 +40,8 @@ sys.path.insert(0, os.path.dirname(os.path.dirname(os.path.abspath(__file__))))
 
 from golf.courses import DEFAULT_PATH, CourseBook          # noqa: E402
 from golf.geo import in_korea                              # noqa: E402
-from golf.models import Course, normalize_course_name      # noqa: E402
+from golf.models import (Course, normalize_course_name,    # noqa: E402
+                         region_hint)
 
 OVERPASS_ENDPOINTS = [
     "https://overpass-api.de/api/interpreter",
@@ -276,6 +278,105 @@ def fetch_nominatim_grid(stats: dict | None = None) -> list[dict]:
     return list(found.values())
 
 
+def fetch_nominatim_names(names: list[str], stats: dict | None = None) -> list[Course]:
+    """이름을 하나씩 대고 그 골프장만 찾아 온다.
+
+    격자 훑기는 지도에 `leisure=golf_course` 로 찍힌 곳만 가져온다. 실제로는
+    지도에 그렇게 안 찍혀 있어 빠지는 골프장이 많다. 예약 사이트에는 매일
+    수백 건씩 올라오는데 좌표가 없어 검색에서 통째로 빠지는 곳들이다.
+
+    이름을 직접 대고 찾으면 그런 곳도 잡힌다. 다만 **엉뚱한 곳이 잡히기 쉬워**
+    검사를 붙인다.
+
+      - 한국 안이어야 한다
+      - 찾은 이름에 우리가 댄 이름이 실제로 들어 있어야 한다
+      - 골프와 무관한 종류(식당·상점 등)는 버린다
+
+    검사에 걸린 것은 버리고 그 사실을 남긴다. 좌표가 틀리면 없는 것보다 나쁘다.
+    """
+    # 골프장일 법한 종류만 받는다. Nominatim 은 이름이 비슷한 가게도 돌려준다.
+    # "라싸" 로 찾으면 "라싸커피" 가 나오는 식이다. 그 좌표가 박히면
+    # 카페까지 걸리는 거리로 골프장을 고르게 된다.
+    ok_class = {"leisure", "landuse", "tourism"}
+    # 종류가 달라도 이름에 골프가 들어 있으면 받는다.
+    golf_words = ("골프", "cc", "gc", "컨트리", "golf", "country club")
+    out: list[Course] = []
+    for raw in names:
+        query = _search_name(raw)
+        hint = region_hint(raw)
+        if not query:
+            continue
+        found = None
+        for suffix in ("골프장", "CC", "골프클럽", ""):
+            term = f"{query} {suffix}".strip()
+            try:
+                rows = _nominatim(q=term, countrycodes="kr", limit=5,
+                                  addressdetails=1, extratags=1, namedetails=1)
+            except Exception as exc:
+                _note(stats, "errors", f"{raw}: {str(exc)[:60]}")
+                continue
+            for rec in rows:
+                label = (rec.get("display_name") or rec.get("name") or "").lower()
+                if ((rec.get("class") or "") not in ok_class
+                        and not any(w in label for w in golf_words)):
+                    continue
+                course = nominatim_to_course(rec, stats)
+                if course is None:
+                    continue
+                if not _same_place(query, course, hint):
+                    _note(stats, "name_mismatch", f"{raw} → {course.name}")
+                    continue
+                found = course
+                break
+            if found:
+                break
+        if found:
+            # 예약 사이트가 쓰는 이름으로도 찾을 수 있게 별칭에 넣는다.
+            if raw not in found.aliases and raw != found.name:
+                found.aliases.append(raw)
+            out.append(found)
+            print(f"    {raw} → {found.name} ({found.region})")
+        else:
+            _note(stats, "not_found", raw)
+            print(f"    {raw} → 찾지 못함")
+    return out
+
+
+def _search_name(raw: str) -> str:
+    """검색에 쓸 이름. 예약 사이트가 붙인 꼬리표를 떼되 지역은 남긴다.
+
+    괄호를 통째로 지우면 안 된다. "포웰(안성)cc" 의 안성은 **어느 포웰인지**를
+    가르는 말이다. 떼고 찾으면 경남 포웰이 나와 경기 골프장에 경남 좌표가
+    박힌다. 판매 조건만 떼고 지역은 검색어에 남긴다.
+    """
+    hint = region_hint(raw)
+    name = re.sub(r"[(\[][^)\]]*[)\]]", " ", raw or "")
+    name = re.sub(r"[-–]\s*퍼\s*9|퍼블릭|비공개|병행|대중제|회원제", " ", name)
+    name = re.sub(r"\s+", " ", name).strip()
+    if hint and hint not in name:
+        name = f"{name} {hint}".strip()
+    return name
+
+
+def _same_place(query: str, course: Course, hint: str = "") -> bool:
+    """찾아온 것이 정말 그 이름·그 지역인지. 아니면 엉뚱한 좌표가 박힌다."""
+    want = normalize_course_name(query)
+    if not want:
+        return False
+    if hint and hint not in f"{course.name} {course.address} {course.region}":
+        return False
+    for candidate in [course.name, *course.aliases]:
+        key = normalize_course_name(candidate)
+        if key and (want in key or key in want):
+            return True
+    return False
+
+
+def _note(stats: dict | None, key: str, value: str) -> None:
+    if stats is not None:
+        stats.setdefault(key, []).append(value)
+
+
 def nominatim_to_course(rec: dict, stats: dict | None = None) -> Course | None:
     """Nominatim 검색 결과 한 건을 Course 로 바꾼다."""
     names = rec.get("namedetails") or {}
@@ -412,6 +513,40 @@ def reverse_geocode_region(lat: float, lon: float) -> str:
     return normalize_region(addr.get("province") or addr.get("state") or addr.get("city") or "")
 
 
+def add_by_name(names_path: str, out_path: str) -> int:
+    """이름 목록으로 좌표를 찾아 기존 CSV 에 더한다."""
+    with open(names_path, encoding="utf-8") as f:
+        wanted = [line.strip() for line in f if line.strip()]
+    if not wanted:
+        print(f"이름이 없습니다: {names_path}")
+        return 1
+
+    book = CourseBook.load(out_path)
+    print(f"기존 {len(book)}곳에 {len(wanted)}개 이름을 찾아 더합니다.")
+    print("요청 간격을 지키므로 이름 하나에 몇 초 걸립니다.\n")
+
+    stats: dict = {}
+    found = fetch_nominatim_names(wanted, stats)
+
+    added = 0
+    for course in found:
+        if book.match(course.name):
+            continue                     # 이미 있는 곳
+        book.add(course)
+        added += 1
+
+    book.save(out_path)
+    print(f"\n{added}곳을 더했습니다 (전체 {len(book)}곳) → {out_path}")
+    for key, label in (("not_found", "찾지 못함"),
+                       ("name_mismatch", "이름이 달라 버림"),
+                       ("errors", "오류")):
+        rows = stats.get(key) or []
+        if rows:
+            print(f"  {label} {len(rows)}건: {', '.join(rows[:6])}")
+    print("\n확인: python3 scripts/check_coverage.py")
+    return 0
+
+
 def main() -> int:
     ap = argparse.ArgumentParser(description="OSM에서 국내 골프장 좌표 수집")
     ap.add_argument("--out", default=DEFAULT_PATH, help="저장할 CSV 경로")
@@ -431,7 +566,15 @@ def main() -> int:
         default="auto",
         help="auto=Overpass 먼저 시도하고 막히면 Nominatim 격자로 (기본값)",
     )
+    ap.add_argument(
+        "--names",
+        help="이 파일에 한 줄씩 적힌 골프장 이름만 찾아 기존 CSV에 더한다. "
+             "scripts/check_coverage.py 가 못 찾은 이름을 뽑아 준다.",
+    )
     args = ap.parse_args()
+
+    if args.names:
+        return add_by_name(args.names, args.out)
 
     stats: dict = {}
     print("OpenStreetMap에서 국내 골프장을 조회합니다...")

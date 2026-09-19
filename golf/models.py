@@ -146,6 +146,37 @@ def region_hint(raw: str) -> str:
     return ""
 
 
+# 같은 브랜드를 예약 사이트와 지도 데이터가 다르게 적는 경우.
+#
+#     골팡 "골프존 진천"   ↔  지도 "골프존카운티 진천"
+#     골팡 "클럽D 보은"    ↔  지도 "클럽디보은CC"
+#
+# 글자가 겹치기는 해도 한쪽이 다른 쪽을 포함하지 않아 포함 규칙으로는 안 걸린다.
+# 어림짐작에 맡기면 "스프링베일" 이 "스프링데일" 에 붙는 것 같은 사고가 난다.
+# 그래서 **확인된 표기 차이만** 목록으로 둔다.
+#
+# 각 묶음은 같은 브랜드의 여러 표기다. 정규화된 키가 그중 하나로 시작하면
+# 나머지 표기로 바꾼 키도 후보에 넣는다.
+_BRAND_FORMS = [
+    ("골프존카운티", "골프존"),
+    ("클럽디", "클럽d"),
+]
+
+
+def _brand_swaps(key: str) -> list[str]:
+    """브랜드 표기만 바꾼 키들."""
+    out = []
+    for forms in _BRAND_FORMS:
+        # 긴 표기부터 본다. "골프존카운티진천" 이 "골프존" 으로도 시작하므로,
+        # 짧은 쪽을 먼저 잡으면 "골프존카운티카운티진천" 이 된다.
+        for form in sorted(forms, key=len, reverse=True):
+            if key.startswith(form):
+                rest = key[len(form):]
+                out.extend(other + rest for other in forms if other != form)
+                break
+    return out
+
+
 def name_variants(raw: str) -> list[str]:
     """그 이름을 가리킬 법한 정규화 키들. 확실한 것부터.
 
@@ -180,6 +211,11 @@ def name_variants(raw: str) -> list[str]:
 
     without_op = _OPERATOR_PREFIX.sub("", stripped)
     add(without_op)                            # 운영사 이름을 뗀 것
+
+    for key in list(out):                      # 브랜드 표기만 다른 것
+        for swapped in _brand_swaps(key):
+            if swapped not in out:
+                out.append(swapped)
 
     return out
 

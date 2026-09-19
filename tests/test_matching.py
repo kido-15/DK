@@ -92,6 +92,39 @@ class TestNameVariants(unittest.TestCase):
         self.assertEqual(name_variants("   "), [])
 
 
+class TestBrandSpelling(unittest.TestCase):
+    """같은 브랜드를 예약 사이트와 지도 데이터가 다르게 적는 경우.
+
+    글자가 겹치기는 해도 한쪽이 다른 쪽을 포함하지 않아 포함 규칙에 안 걸린다.
+    어림짐작에 맡기면 엉뚱한 곳에 붙으므로, 확인된 표기 차이만 목록으로 둔다.
+    """
+
+    def setUp(self):
+        self.book = CourseBook([
+            Course(course_id="gz", name="골프존카운티 진천", lat=36.85,
+                   lon=127.44, region="충북"),
+            Course(course_id="cd", name="클럽디보은CC", lat=36.49,
+                   lon=127.72, region="충북"),
+            Course(course_id="sd", name="스프링데일CC", lat=33.39,
+                   lon=126.53, region="제주"),
+        ])
+
+    def test_operator_long_and_short_form(self):
+        self.assertEqual(self.book.match("골프존 진천").course_id, "gz")
+        self.assertEqual(self.book.match("클럽D 보은").course_id, "cd")
+
+    def test_already_long_form_is_not_doubled(self):
+        """'골프존카운티진천' 도 '골프존' 으로 시작한다. 두 번 붙이면 안 된다."""
+        self.assertIn("골프존카운티진천", name_variants("골프존카운티 진천"))
+        self.assertNotIn("골프존카운티카운티진천",
+                         name_variants("골프존카운티 진천"))
+        self.assertEqual(self.book.match("골프존카운티 진천").course_id, "gz")
+
+    def test_similar_but_different_name_is_not_bound(self):
+        """'스프링베일' 은 '스프링데일' 이 아니다. 한 글자 차이라도 다른 곳이다."""
+        self.assertIsNone(self.book.match("스프링베일-퍼9"))
+
+
 class TestRegionHint(unittest.TestCase):
     """이름 괄호 안의 지역 표시.
 
