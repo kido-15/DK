@@ -312,6 +312,11 @@ def parse_price(value: Any) -> int:
     s = str(value).strip()
     if not s:
         return -1
+    # 가격을 모른다는 뜻으로 -1 을 쓴다. CSV 로 오간 뒤 다시 읽을 때 숫자만
+    # 뽑으면 부호가 떨어져 "-1" 이 1원이 된다. 그러면 가격 미상인 매물이
+    # **가장 싼 매물**로 둔갑해 검색 결과 맨 위에 올라온다.
+    if re.match(r"-\s*\d", s):
+        return -1
     # "16.8만원" 형태
     m = re.search(r"(\d+(?:\.\d+)?)\s*만", s)
     if m:

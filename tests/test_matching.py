@@ -18,7 +18,8 @@ import unittest
 sys.path.insert(0, os.path.dirname(os.path.dirname(os.path.abspath(__file__))))
 
 from golf.courses import CourseBook                  # noqa: E402
-from golf.models import Course, name_variants        # noqa: E402
+from golf.models import (Course, name_variants,       # noqa: E402
+                         parse_price)
 
 # 좌표 DB 쪽 이름(공식 이름)을 흉내 낸 것
 OFFICIAL = [
@@ -156,6 +157,83 @@ class TestExactBeatsFuzzy(unittest.TestCase):
             Course(course_id="wrong", name="신안산", lat=37.3, lon=126.8),
         ])
         self.assertEqual(b.match("신안(병행)").course_id, "right")
+
+
+class TestUnknownPriceSurvivesCsv(unittest.TestCase):
+    """가격을 모른다는 뜻의 -1 이 CSV 를 거쳐 오면서 1원이 되면 안 된다.
+
+    그러면 가격 미상인 매물이 **가장 싼 매물**로 둔갑해 "15만원 이하" 검색
+    결과 맨 위에 올라온다. 실제로 그렇게 나왔다.
+    """
+
+    def test_negative_is_unknown_not_one_won(self):
+        self.assertEqual(parse_price("-1"), -1)
+        self.assertEqual(parse_price("-1원"), -1)
+
+    def test_round_trip_through_csv(self):
+        import csv as _csv
+        import tempfile
+        from datetime import date, time
+
+        from golf.models import TeeTime
+        from golf.sources.csv_source import CsvSource
+
+        rows = [TeeTime(course_name="가나CC", play_date=date(2026, 9, 20),
+                        tee_time=time(7, 30), green_fee=-1, source="t")]
+        with tempfile.TemporaryDirectory() as tmp:
+            path = os.path.join(tmp, "t.csv")
+            CsvSource.write(path, rows)
+            with open(path, encoding="utf-8") as f:
+                self.assertEqual(next(_csv.DictReader(f))["green_fee"], "-1")
+            back = CsvSource(path, source_id="t").fetch([])
+        self.assertEqual(back[0].green_fee, -1, "가격 미상이 1원이 됐다")
+
+    def test_normal_prices_unaffected(self):
+        self.assertEqual(parse_price("168,000원"), 168000)
+        self.assertEqual(parse_price("16.8만"), 168000)
+        self.assertEqual(parse_price("0"), 0)
+
+
+class TestStatsCountUnmatchedAfterDedupe(unittest.TestCase):
+    """매칭 실패 수를 중복 제거 **뒤** 목록으로 세야 한다.
+
+    받은 수(중복 포함)에서 빼면, 중복으로 지운 것까지 실패로 잡혀 실패가
+    몇 배로 부풀려진다. 대시보드에 그대로 보이는 숫자라, 매칭이 멀쩡한데도
+    "거의 다 실패" 처럼 읽힌다.
+    """
+
+    def test_unmatched_excludes_duplicates(self):
+        from datetime import date, time
+
+        from golf.models import SearchQuery, TeeTime
+        from golf.search import GolfSearch
+
+        def tee(name, minute):
+            return TeeTime(course_name=name, play_date=date(2026, 9, 20),
+                           tee_time=time(7, minute), green_fee=100000, source="s")
+
+        # 같은 티타임 5개(중복) + 매칭되는 것 1개 + 매칭 안 되는 것 1개
+        rows = [tee("가평(비공개)", 0) for _ in range(5)]
+        rows.append(tee("글렌로스-퍼9", 10))
+        rows.append(tee("세상에없는골프장", 20))
+
+        class FakeSource:
+            id = "s"
+            name = "s"
+            enabled = True
+            last_error = ""
+
+            def fetch(self, dates):
+                return list(rows)
+
+        _, stats = GolfSearch(book(), [FakeSource()]).search(
+            SearchQuery(origin=""))
+
+        self.assertEqual(stats.fetched, 7)
+        self.assertEqual(stats.duplicates, 4)          # 같은 것 5개 → 1개
+        self.assertEqual(stats.matched, 2)             # 가평, 글렌로스
+        self.assertEqual(stats.unmatched, 1,           # 세상에없는골프장만
+                         "중복으로 지운 것이 실패로 잡혔다")
 
 
 class TestUnmatchedIsReported(unittest.TestCase):
