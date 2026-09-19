@@ -105,7 +105,9 @@ class GolfSearch:
         for t in tee_times:
             t.course = self.book.match(t.course_name)
         stats.matched = sum(1 for t in tee_times if t.matched)
-        stats.unmatched = stats.fetched - stats.matched
+        # 중복을 걸러 낸 뒤의 건수로 센다. fetched 로 빼면 중복 제거분이
+        # 전부 "좌표 못 찾음" 으로 둔갑해 실제보다 훨씬 나빠 보인다.
+        stats.unmatched = len(tee_times) - stats.matched
         stats.unmatched_names = [n for n, _ in self.book.unmatched_report()]
 
         # 3단계: 값싼 필터 먼저
