@@ -22,9 +22,43 @@ from typing import Optional
 from .geo import USER_AGENT, haversine_km
 
 # 직선거리를 실제 도로거리로 바꿀 때 쓰는 우회계수.
-# 한국 도로망 기준 대략 1.3 정도로 알려져 있으나 정확한 값은 아니며,
-# 근거리일수록 시내도로 비중이 커져 오차가 커진다.
-DETOUR_FACTOR = 1.3
+#
+# 2026-09-19 에 강남역 기준 골프장 35곳을 OSRM 실제 경로와 맞대어 재 본 값이다
+# (도로거리/직선거리 평균 1.267, 중앙값 1.256). 측정 범위는 36~113km 이다.
+DETOUR_FACTOR = 1.26
+
+# 도로거리별 평균 주행속도 (km, km/h). 사이는 직선으로 이어 쓴다.
+#
+# 멀수록 고속도로 비중이 높아 빨라진다. 고정 속도를 쓰면 가까운 곳은 너무
+# 느리게, 먼 곳은 너무 빠르게 잡힌다. "90분 이내" 로 거를 때 그 어긋남이
+# 그대로 결과에 나온다 — 실제로는 더 가까운 곳이 잘리고, 실제로는 90분을
+# 넘는 곳이 통과한다.
+#
+# 36km 아래는 재 보지 못했다. 시내 구간 비중이 크므로 낮게 두었으나 **측정값이
+# 아니다.** 그 거리대의 결과는 더 어긋날 수 있다.
+_SPEED_BY_KM = [
+    (10, 30.0),      # 측정 안 됨 (시내)
+    (25, 48.0),      # 측정 안 됨 (36km 측정값에서 내려 잡음)
+    (39, 58.9),      # 이하 측정값
+    (55, 64.7),
+    (68, 65.9),
+    (90, 65.9),
+    (105, 73.3),
+    (130, 77.3),
+]
+
+
+def _speed_kmh(road_km: float) -> float:
+    """그 거리에서 기대할 만한 평균 주행속도."""
+    if road_km <= _SPEED_BY_KM[0][0]:
+        return _SPEED_BY_KM[0][1]
+    if road_km >= _SPEED_BY_KM[-1][0]:
+        return _SPEED_BY_KM[-1][1]
+    for (k0, v0), (k1, v1) in zip(_SPEED_BY_KM, _SPEED_BY_KM[1:]):
+        if k0 <= road_km <= k1:
+            ratio = (road_km - k0) / (k1 - k0)
+            return v0 + (v1 - v0) * ratio
+    return _SPEED_BY_KM[-1][1]
 
 
 @dataclass
@@ -50,21 +84,17 @@ def _http_json(url: str, *, headers=None, data=None, timeout: int = 20):
 
 
 def _estimate(o_lat, o_lon, d_lat, d_lon, **_) -> RouteInfo:
-    """네트워크 없이 추정. 거리 구간별로 평균 주행속도를 다르게 적용한다.
+    """네트워크 없이 추정. 거리에 따라 평균 주행속도를 다르게 적용한다.
 
     가까울수록 시내 구간 비중이 높아 느리고, 멀수록 고속도로 비중이 높아 빠르다.
+    속도표는 실제 경로와 맞대어 재 본 값이다(위 _SPEED_BY_KM 참고).
+
+    어디까지나 추정이다. 실제 도로 기준이 필요하면 길찾기 API 를 쓰는 쪽이 맞고,
+    결과에는 어느 방식으로 계산했는지가 늘 함께 담긴다(route_provider).
     """
     straight = haversine_km(o_lat, o_lon, d_lat, d_lon)
     road_km = straight * DETOUR_FACTOR
-
-    if road_km < 15:
-        kmh = 30.0
-    elif road_km < 40:
-        kmh = 45.0
-    elif road_km < 80:
-        kmh = 60.0
-    else:
-        kmh = 75.0
+    kmh = _speed_kmh(road_km)
 
     return RouteInfo(
         distance_km=road_km,
