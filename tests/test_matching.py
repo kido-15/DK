@@ -125,6 +125,36 @@ class TestBrandSpelling(unittest.TestCase):
         self.assertIsNone(self.book.match("스프링베일-퍼9"))
 
 
+class TestMostlyGenericName(unittest.TestCase):
+    """이름이 거의 전부 일반 낱말인 골프장.
+
+    "골프클럽Q" 는 일반 낱말을 지우면 "q" 한 글자만 남아 색인에서 빠진다.
+    그러면 그 골프장은 영영 못 찾고, 좌표를 다시 받을 때마다 같은 행이
+    또 쌓인다(실제로 중복 행이 생겼다).
+    """
+
+    def test_indexed_and_matchable(self):
+        b = CourseBook([
+            Course(course_id="q", name="골프클럽Q", lat=37.0, lon=127.4,
+                   region="경기"),
+        ])
+        self.assertEqual(b.match("골프클럽Q").course_id, "q")
+
+    def test_pure_generic_name_is_not_indexed(self):
+        """남는 것이 아예 없는 이름은 키로 쓰면 아무 데나 걸린다."""
+        self.assertEqual(
+            Course(course_id="x", name="골프장", lat=1, lon=1).match_keys(), [])
+        self.assertEqual(
+            Course(course_id="x", name="CC", lat=1, lon=1).match_keys(), [])
+
+    def test_generic_name_does_not_swallow_others(self):
+        b = CourseBook([
+            Course(course_id="junk", name="골프장", lat=1, lon=1),
+            Course(course_id="real", name="남서울컨트리클럽", lat=37.3, lon=127.0),
+        ])
+        self.assertEqual(b.match("남서울CC").course_id, "real")
+
+
 class TestRegionHint(unittest.TestCase):
     """이름 괄호 안의 지역 표시.
 

@@ -74,6 +74,17 @@ class Course:
                 key = normalize_course_name(candidate)
                 if key and len(key) >= 2 and key not in keys:
                     keys.append(key)
+                elif key:
+                    # 이름이 거의 전부 "골프클럽" 같은 일반 낱말인 경우.
+                    # 그 낱말을 지우면 "골프클럽Q" 가 "q" 한 글자만 남아
+                    # 색인에서 빠진다. 그러면 그 골프장은 영영 못 찾고,
+                    # 좌표를 다시 받을 때마다 같은 행이 또 쌓인다.
+                    #
+                    # 지우기 전 형태를 키로 넣는다. 남은 것이 아예 없는
+                    # 이름("골프장", "CC")은 넣지 않는다 — 아무 데나 걸린다.
+                    light = _NON_WORD.sub("", candidate.strip().lower())
+                    if len(light) >= 3 and light not in keys:
+                        keys.append(light)
         return keys
 
 
@@ -191,6 +202,12 @@ def name_variants(raw: str) -> list[str]:
 
     def add(value: str) -> None:
         key = normalize_course_name(value)
+        if key and len(key) < 2:
+            # "골프클럽Q" 처럼 이름이 거의 전부 일반 낱말인 경우. 그 낱말을
+            # 지우면 한 글자만 남아 아무것도 못 찾는다. 지우기 전 형태로 찾는다.
+            light = _NON_WORD.sub("", (value or "").strip().lower())
+            if len(light) >= 3 and light not in out:
+                out.append(light)
         if key and key not in out:
             out.append(key)
 

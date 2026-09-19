@@ -528,11 +528,15 @@ def add_by_name(names_path: str, out_path: str) -> int:
     stats: dict = {}
     found = fetch_nominatim_names(wanted, stats)
 
+    # 이미 있는 곳인지 가린다. 이름으로만 보면, 이름이 색인에 안 들어가는
+    # 골프장("골프클럽Q" 처럼 일반 낱말이 대부분인 이름)이 매번 다시 쌓인다.
+    have_ids = {c.course_id for c in book.courses}
     added = 0
     for course in found:
-        if book.match(course.name):
-            continue                     # 이미 있는 곳
+        if course.course_id in have_ids or book.match(course.name):
+            continue
         book.add(course)
+        have_ids.add(course.course_id)
         added += 1
 
     book.save(out_path)
