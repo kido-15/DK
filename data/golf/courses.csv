@@ -2,6 +2,7 @@ course_id,name,lat,lon,region,address,holes,phone,homepage,source,aliases
 osm-way-379620543,IN코스,37.419882,127.817076,강원,강원특별자치도 원주시 월송석화로,,,,osm-nominatim,
 osm-node-4642615385,골프장,37.715344,128.832778,강원,강원특별자치도 강릉시 성산면 구산강변길,,,,osm-nominatim,
 osm-way-671763353,남춘천CC,37.790935,127.692373,강원,강원특별자치도 춘천시 신동면 한치로,,,https://www.namchuncheon.co.kr,osm-nominatim,Nam Chun Cheon Country Club
+manual-namhangang-spark,남한강에스파크,37.2080828,127.7564733,강원,강원특별자치도 원주시 부론면 장뜰길 154,27,,https://nhg.s-parkcc.kr/,manual-verified,남한강에스파크
 osm-way-691343112,더플레이어스GC,37.776192,127.749578,강원,강원특별자치도 춘천시 동산면 논골길,,,https://www.playersgc.com/,osm-nominatim,The Players Golf Club
 osm-way-693438891,동서울레스피아 골프&리조트,37.401061,127.879204,강원,강원특별자치도 원주시 신평석화로,,,https://www.respia.com,osm-nominatim,
 osm-way-631125417,동원썬밸리CC,37.483812,127.789796,강원,강원특별자치도 횡성군 서원면 양서북로,,,https://www.sunvalley.co.kr/dongwon/golf/intro,osm-nominatim,Dongwon Sun Valley Country Club
@@ -13,6 +14,7 @@ osm-way-470665698,메이플비치,37.743858,128.967701,강원,강원특별자치
 osm-way-1410516120,메이플코스,37.435385,127.810558,강원,강원특별자치도 원주시 월송석화로,,,,osm-nominatim,
 osm-relation-18219519,버치힐CC,37.655637,128.706136,강원,강원특별자치도 평창군 대관령면 올림픽로,,,https://www.yongpyong.co.kr/kor/golf/course/birchhillClub/fullMap.do,osm-nominatim,Yongpyong Birch Hill Country Club
 osm-way-671760849,베어크리크GC 춘천,37.768869,127.719501,강원,강원특별자치도 춘천시 신동면 김유정로,,,https://www.bearcreek.co.kr/,osm-nominatim,Bear Creek Golf Club
+manual-bellastone-cc,벨라스톤 컨트리클럽,37.4430885,127.8479261,강원,강원도 횡성군 서원면 옥계9길 124,,033-340-9000,https://www.bellastonecc.com/,manual-verified,벨라스톤
 osm-way-466141930,블랙밸리CC,37.222966,129.070875,강원,강원특별자치도 삼척시 도계읍 도상로,,,,osm-nominatim,
 osm-relation-18635753,비콘힐스골프클럽,37.62464,127.867872,강원,강원특별자치도 홍천군 홍천읍 높은터로,,,https://www.beaconhills.co.kr/,osm-nominatim,Beacon Hills Golf Club
 osm-way-393889907,샌드파인GC,37.800038,128.881019,강원,강원특별자치도 강릉시 안현로244번길,,,https://www.lakaisandpine.co.kr/golf,osm-nominatim,Sandpine Golf Club
@@ -26,11 +28,14 @@ osm-way-377809092,센추리21CC,37.282541,127.849576,강원,강원특별자치�
 osm-relation-20257052,소노펠리체CC 델피노,38.210004,128.498851,강원,강원특별자치도 고성군 토성면 미시령옛길,,,https://www.sonofelicecc.com/dp,osm-nominatim,Sono Felice Country Club Del Pino
 osm-way-545967328,소노펠리체CC 비발디파크 EAST,37.663478,127.686519,강원,강원특별자치도 홍천군 서면 한치골길,,,https://www.sonofelicecc.com/sn,osm-nominatim,Sono Felice Country Club - Vivaldi Park East
 osm-way-545967310,소노펠리체CC 비발디파크 WEST,37.640347,127.679423,강원,강원특별자치도 홍천군 서면 한치골길,,,https://www.sonofelicecc.com/vc,osm-nominatim,Sono Felice Country Club - Vivaldi Park West
+manual-springvale-cc,스프링베일CC,37.8759696,127.7849943,강원,강원특별자치도 춘천시 동면 금베이길 93-27,9,033-254-7900,http://www.springvale.co.kr/,manual-verified,스프링베일-퍼9|스프링베일
+manual-alpensia-myeongmun-gc,알펜시아 명문 골프클럽,37.6606711,128.6732888,강원,강원도 평창군 대관령면 솔봉로 325,,,https://www.alpensia.com/golf/main.do,manual-verified,알펜시아명문
 osm-way-122741297,알펜시아 트룬CC,37.653545,128.659,강원,강원특별자치도 평창군 대관령면 큰터길,,,,osm-nominatim,
 osm-relation-6958482,알펜시아700GC,37.66286,128.69382,강원,강원특별자치도 평창군 대관령면 Olympic-ro,,,,osm-nominatim,
 osm-way-545744182,알프스대영CC,37.464607,128.071865,강원,강원특별자치도 횡성군 우천면 상하가로,,,https://www.alpsdy.com,osm-nominatim,Alps Daeyoung Country Club
 osm-way-378093773,에콜리안 정선CC,37.222772,128.683078,강원,강원특별자치도 정선군 신동읍 새골길,,,,osm-nominatim,
 osm-way-671763964,오너스GC,37.771655,127.654817,강원,강원특별자치도 춘천시 동촌로,,,https://www.ownersgc.co.kr,osm-nominatim,Owners Golf Club
+manual-aurora-golf-resort,오로라골프앤리조트,37.2069829,128.0523232,강원,강원특별자치도 원주시 신림면 구학리 660,,033-810-8800,https://auroragolfnresort.co.kr/,manual-verified,오로라
 osm-relation-17867611,오크밸리CC,37.435952,127.817498,강원,강원특별자치도 원주시 월송석화로,,,https://hdcgolf.com/oakvalley/course,osm-nominatim,Oak Valley Country Club
 osm-node-10789966745,오크밸리스골프장 코스구역,37.412332,127.824572,강원,강원특별자치도 원주시 오크밸리2길,,,,osm-nominatim,
 osm-node-10789966743,오크밸리스골프장 코스구역,37.416791,127.828038,강원,강원특별자치도 원주시 월송석화로,,,,osm-nominatim,
@@ -47,6 +52,7 @@ osm-way-589107941,클럽모우CC,37.693266,127.56379,강원,강원특별자치�
 osm-way-641656095,탑스텐리조트 동강시스타CC,37.214585,128.510785,강원,강원특별자치도 영월군 영월읍 삼옥길,,,https://www.cistar.co.kr/view/viewLink.do?page=homepage/KOR/resorts/golf_use_info,osm-nominatim,Donggang Cistar Country Club
 osm-way-477983957,태기산CC,37.584911,128.320491,강원,강원특별자치도 평창군 봉평면 태기로,,,,osm-nominatim,
 osm-relation-8251157,파인리즈CC,38.24861,128.546476,강원,강원특별자치도 고성군 토성면 고성대로,,,https://www.pineridge.co.kr/,osm-nominatim,Pine Ridge Country Club
+manual-pinevalley-cc,파인밸리CC,37.3546657,129.1898535,강원,강원도 삼척시 근덕면 미근로 1629,,,https://www.tyleisure.co.kr/,manual-verified,파인밸리
 osm-way-1410516116,파인코스,37.42426,127.819342,강원,강원특별자치도 원주시 월송석화로,,,,osm-nominatim,
 osm-way-1309202985,파크 골프,37.832772,128.416535,강원,강원특별자치도 홍천군 내면 내린천로,,,,osm-nominatim,
 osm-way-205148563,파크밸리GC,37.393164,128.009895,강원,강원특별자치도 원주시 소초면 상초구길,,,,osm-nominatim,
@@ -114,11 +120,13 @@ osm-node-12090259331,더스윙제트 미사점,37.561494,127.192311,경기,경�
 osm-way-1200585166,더스타휴 골프앤리조트,37.476059,127.700235,경기,경기도 양평군 고송리 모라치길,,,https://www.thestarhue.com,osm-nominatim,The Star Hue
 osm-way-694530109,더스테이힐링파크 링스파3골프,37.659008,127.522997,경기,경기도 가평군 설악면 한서로 210번길,,,https://www.thestayhealingpark.com/active/index,osm-nominatim,
 osm-way-972255795,더크로스비 골프클럽,37.2326,127.413591,경기,경기도 이천시 호법면 중부대로798번길,,,,osm-nominatim,
+osm-relation-19993832,더헤븐CC,37.230754,126.560909,경기,경기도 안산시 단원구 대선로 466,,,https://www.theheavenresort.com/,osm-nominatim,Island CC|아일랜드CC|더헤븐
 osm-way-53736029,덕소골프클럽,37.587579,127.206217,경기,경기도 남양주시 와부읍 경강로,,,,osm-nominatim,Deokso Golf Club
 osm-node-11496028079,덕풍 골프존,37.548559,127.203302,경기,경기도 하남시 덕풍북로6번길,,,,osm-nominatim,
 osm-way-925782668,동서울골프클럽,37.471645,127.33676,경기,경기도 광주시 퇴촌면 정영로,,,,osm-nominatim,
 osm-way-631059498,동여주CC,37.218453,127.6161,경기,경기도 여주시 금당리 중부내륙고속도로,,,,osm-nominatim,
 osm-way-541810105,라비돌CC,37.188901,126.986783,경기,경기도 화성시 정남면 괘랑2길17번길,,,,osm-nominatim,
+manual-lassa-gc,라싸골프클럽,38.0387563,127.3658983,경기,경기도 포천시 이동면 제비울2길 161,,031-538-0600,http://www.lassagc.com/,manual-verified,라싸
 osm-way-820150089,레이크 골프 클럽,37.250146,127.087869,경기,경기도 용인시 기흥구 덕영대로,,,,osm-nominatim,
 osm-way-376628275,레이크사이드CC,37.310172,127.162425,경기,경기도 용인시 처인구 에버랜드로456번길,,,,osm-nominatim,
 osm-way-391489398,레이크우드컨트리클럽,37.780673,127.086846,경기,경기도 양주시 신평화로,,,,osm-nominatim,
@@ -182,7 +190,6 @@ osm-way-524471443,아난티클럽 서울,37.620475,127.481354,경기,경기도 �
 osm-way-380275460,아리지CC,37.215434,127.595276,경기,경기도 여주시 양귀리 아리지그린길,,,,osm-nominatim,
 osm-way-645512668,아세코밸리골프클럽클럽하우스,37.367828,126.769678,경기,경기도 시흥시 평택시흥고속도로,,,,osm-nominatim,
 osm-way-389269626,아시아나CC,37.25561,127.281454,경기,경기도 용인시 처인구 한터로563번길,,,,osm-nominatim,
-osm-relation-19993832,아일랜드CC,37.230754,126.560909,경기,경기도 안산시 단원구 대선로,,,,osm-nominatim,Island CC
 osm-way-378024810,안성CC,37.037657,127.408102,경기,경기도 안성시 죽산면 한남금북정맥,,,https://www.ansungcc.co.kr/,osm-nominatim,Ansung Country Club
 osm-way-378021752,안성베네스트골프클럽,37.020689,127.386064,경기,경기도 안성시 금광면 삼흥로,,,,osm-nominatim,
 osm-relation-6959924,안양 컨트리클럽,37.338074,126.942513,경기,경기도 군포시 군포로,,+82-31-460-3301,https://www.golfsamsung.com/web/ayCourseMap.do,osm-nominatim,Anyang Country Club
@@ -248,14 +255,17 @@ osm-way-472460342,파인힐클럽하우스,37.189777,127.038438,경기,경기도
 osm-node-5624543422,파주CC,37.843101,126.904023,경기,경기도 파주시 법원읍 수도권제2순환고속도로,,,,osm-nominatim,
 osm-way-693455670,페럼클럽,37.209265,127.683572,경기,경기도 여주시 사곡리 점동로,,,https://www.ferrumclub.com/,osm-nominatim,Ferrum Club
 osm-way-584454936,포레스트CC,37.8743,127.270469,경기,경기도 포천시 화현면 339,,,,osm-nominatim,
+manual-4well-anseong-cc,포웰CC(안성),37.1170036,127.2607048,경기,경기도 안성시 양성면 약산길 67-6,,031-612-6000,https://as.4wellcc.com/,manual-verified,포웰(안성)cc|포웰안성
 osm-way-391445387,포천 아도니스CC,37.96819,127.169929,경기,경기도 포천시 신북면 포천로,,,,osm-nominatim,
 osm-way-589103856,포천GC,37.841184,127.237229,경기,경기도 포천시 우금리 한북정맥,,,,osm-nominatim,
 osm-way-625107919,포천힐스 CC,37.885897,127.247293,경기,경기도 포천시 상성북리 반월산성로,,,,osm-nominatim,
+manual-purunsol-pocheon-gc,푸른솔GC 포천,37.8361106,127.2063421,경기,경기도 포천시 가산면 금우로 276,,031-850-3000,https://www.purunsol.co.kr/,manual-verified,푸른솔포천
 osm-way-1333548764,프라자골프클럽,37.696907,126.735134,경기,경기도 고양시 일산서구 덕산로,,,,osm-nominatim,
 osm-way-524541809,프리스턴벨리 CC,37.65561,127.452281,경기,경기도 가평군 설악면 유명로,,,https://pristinevalley.co.kr,osm-nominatim,Pristine Valley Golf Course|가평프리스틴밸리
 osm-relation-17728999,필로스CC,37.938376,127.332734,경기,경기도 포천시 기산리 387,,,http://www.philosgc.com/,osm-nominatim,Philos Country Club
 osm-way-566861473,한림광릉CC(회원제),37.757447,127.242123,경기,경기도 남양주시 진접읍 수도권제2순환고속도로,,,,osm-nominatim,
 osm-way-389269619,한림안성CC,37.085856,127.198973,경기,경기도 안성시 양성면 양성로,,,https://www.golfzoncounty.com/gcounty/info/main?cc_code=29,osm-nominatim,
+manual-hanlim-yongin-cc,한림용인CC,37.1271072,127.1550205,경기,경기도 용인시 처인구 남사읍 경기동로 628,,031-336-8350,https://www.hanlimgolf.co.kr/,manual-verified,한림용인
 osm-relation-11527738,한성CC,37.310452,127.120053,경기,경기도 용인시 기흥구 죽현로80번길,,,,osm-nominatim,
 osm-way-391816723,한양 CC,37.656811,126.855387,경기,경기도 고양시 덕양구 수원문산고속도로,,,,osm-nominatim,
 osm-way-550896014,한양파인 CC,37.654661,126.867435,경기,경기도 고양시 덕양구 원흥1로,,,,osm-nominatim,
@@ -579,6 +589,7 @@ osm-way-388343732,구룡대CC,36.316812,127.247314,충남,충청남도 계룡시
 osm-way-816568812,남일밸리,36.767281,127.117685,충남,충청남도 아산시 휴대리 휴대길,,,,osm-nominatim,
 osm-way-120410414,더힐컨트리클럽,36.27578,127.167934,충남,충청남도 논산시 어은리 선비로,,,,osm-nominatim,The Hill Country Club
 osm-way-379036299,도고칸트리구락부,36.778876,126.890537,충남,충청남도 아산시 선창리 삼봉산길,,,https://www.dogocc.co.kr/,osm-nominatim,Dogo Country Club
+manual-royallinks-cc,로얄링스CC,36.757905,126.2965246,충남,충청남도 태안군 태안읍 기업도시6길 43,,041-670-0300,https://royallinks.co.kr/,manual-verified,로얄링스
 osm-way-558442586,로얄힐스CC,36.722766,126.337823,충남,충청남도 태안군 반곡리 기업도시1길,,,,osm-nominatim,Royal Hills Country Club
 osm-way-634957667,롯데스카이힐CC,36.302903,126.907505,충남,충청남도 부여군 합정리 백제문로,,,,osm-nominatim,
 osm-way-643263272,롯데스카이힐CC,36.309996,126.91219,충남,충청남도 부여군 호암리 백제문로,,,,osm-nominatim,
@@ -602,6 +613,7 @@ osm-way-633497271,파나시아골프클럽,36.886129,126.791487,충남,충청남
 osm-way-641786577,파인허스트골프클럽,36.839953,127.045537,충남,충청남도 아산시 송촌리 세종평택로,,,http://pinehurst.co.kr/,osm-nominatim,Pinehurst Golf Club
 osm-node-12392605981,프렌즈아카데미,36.782577,127.091444,충남,충청남도 아산시 매곡리 매곡한들1길,,,,osm-nominatim,
 osm-way-617106042,프린세스GC,36.653666,127.113932,충남,충청남도 공주시 동남구 금북정맥,,,www.princessgc.co.kr,osm-nominatim,Princess Golf Club
+manual-flamingo-cc,플라밍고CC,37.0132606,126.5819649,충남,충남 당진시 석문면 산단8로 299,,,http://www.flamingocc.co.kr/,manual-verified,플라밍고
 osm-way-1213004518,감곡CC,37.129366,127.696916,충북,충청북도 음성군 문촌리 중부내륙고속도로,,,https://www.gamgokcc.com/,osm-nominatim,Gamgok Country Club
 osm-way-514081203,골드나인CC,36.614663,127.618387,충북,충청북도 청주시 상당구 한남금북정맥,,,https://www.gold-9.co.kr/,osm-nominatim,Gold Nine Country Club
 osm-node-12433326841,골프상담소,36.606748,127.417991,충북,충청북도 청주시 흥덕구 3순환로,,,,osm-nominatim,
@@ -633,6 +645,7 @@ osm-way-378019386,아난티 중앙 골프클럽,36.937537,127.339046,충북,충�
 osm-way-658618285,에버힐골프클럽,36.520114,127.451464,충북,충청북도 청주시 서원구 죽암도원로,,,http://everhillgc.com,osm-nominatim,Ever Hill Golf Club
 osm-way-1304933682,에콜리안제천CC,37.172744,128.238648,충북,충청북도 제천시 도화리 송학주천로,,,,osm-nominatim,
 osm-way-388760235,오창에딘버러컨트리클럽,36.733964,127.427039,충북,충청북도 청주시 청원구 당진청주고속도로,,,http://www.ochangedincc.com/,osm-nominatim,Ochang Edinburgh Country Club
+manual-allday-golf-resort,올데이 골프앤리조트,37.1088109,127.8068172,충북,충청북도 충주시 앙성면 비내길 189,,043-854-8000,,manual-verified,올데이
 osm-way-513380428,이븐데일CC,36.682834,127.603529,충북,충청북도 청주시 상당구 대신2길,,,http://www.evendale.co.kr/,osm-nominatim,EvenDale Golf&Resort
 osm-way-1298240650,일라이트CC,36.154248,127.792757,충북,충청북도 영동군 회동리 난계로,,,https://illitegolfnresort.co.kr,osm-nominatim,Illite Golf & Resort
 osm-way-1213004519,일레븐CC,37.091431,127.735668,충북,충청북도 충주시 용대리 하너미로,,,https://www.elevencc.co.kr/,osm-nominatim,Eleven Country Club
@@ -648,3 +661,4 @@ osm-way-399703511,킹스데일CC,37.019082,127.813918,충북,충청북도 충주
 osm-way-359363977,킹즈락CC,37.139695,128.184067,충북,충청북도 제천시 내토로7길,,043-640-9000,,osm-nominatim,King's rock CC
 osm-way-1190943403,필그린GC,36.62261,127.643429,충북,충청북도 청주시 상당구 단재로,,,,osm-nominatim,
 osm-way-388594939,히든밸리골프클럽,36.908494,127.308401,충북,충청북도 안성시 서운면 34,,,https://www.hiddenvalley.co.kr/,osm-nominatim,Hidden Valley Golf Club
+manual-hildesheim-cc,힐데스하임CC,36.9218672,127.7623413,충북,충청북도 음성군 소이면 후삼로158번길 101,,,https://www.hildesheimcc.cc/,manual-verified,힐데스하임
