@@ -20,7 +20,6 @@
 from __future__ import annotations
 
 import argparse
-import json
 import os
 import sys
 import time
@@ -29,7 +28,8 @@ from datetime import date, timedelta
 
 sys.path.insert(0, os.path.dirname(os.path.dirname(os.path.abspath(__file__))))
 
-from golf import snapshot                                      # noqa: E402
+from golf.collect import ConfigNotFound                        # noqa: E402
+from golf.collect import merge_into_snapshot                   # noqa: E402
 from golf.courses import DEFAULT_PATH as COURSES_DEFAULT       # noqa: E402
 from golf.courses import CourseBook                            # noqa: E402
 from golf.models import parse_date                             # noqa: E402
@@ -41,28 +41,20 @@ CONFIG_DIR = os.path.join(
 
 
 def load_config(source_id: str, explicit: str = "") -> dict:
-    """그 사이트의 설정 하나를 찾아 온다."""
-    candidates = [explicit] if explicit else [
-        os.path.join(CONFIG_DIR, "sources.json"),
-        os.path.join(CONFIG_DIR, f"sources.{source_id}.json"),
-    ]
-    tried = []
-    for path in candidates:
-        if not path or not os.path.exists(path):
-            tried.append(path)
-            continue
-        with open(path, encoding="utf-8") as f:
-            data = json.load(f)
-        configs = data.get("sources") if isinstance(data, dict) else data
-        for c in configs or []:
-            if isinstance(c, dict) and c.get("id") == source_id:
-                return c
-        tried.append(f"{path} (그 안에 '{source_id}' 가 없음)")
-    print(f"'{source_id}' 설정을 찾지 못했습니다. 찾아본 곳:")
-    for t in tried:
-        print(f"  - {t}")
-    print("\n설정을 새로 만들려면 config/sources.example.json 을 참고하세요.")
-    raise SystemExit(1)
+    """그 사이트의 설정 하나를 찾아 온다.
+
+    golf/collect.py 의 load_source_config 를 쓰되, 여기서는 못 찾으면
+    보고 실행을 끝낸다(웹 대시보드는 대신 API 오류로 알린다).
+    """
+    from golf.collect import load_source_config
+    try:
+        return load_source_config(source_id, explicit)
+    except ConfigNotFound as exc:
+        print(f"'{source_id}' 설정을 찾지 못했습니다. 찾아본 곳:")
+        for t in exc.tried:
+            print(f"  - {t}")
+        print("\n설정을 새로 만들려면 config/sources.example.json 을 참고하세요.")
+        raise SystemExit(1)
 
 
 def parse_dates(args) -> list[date]:
@@ -234,13 +226,9 @@ def main() -> int:
         return 0
 
     if not args.no_snapshot:
-        existing, _ = snapshot.load(snapshot.latest_path())
-        keep = [t for t in existing if t.source != src.id]
-        merged = keep + rows
-        path = snapshot.save(merged, stats={"source": src.id,
-                                            "collected": len(rows),
-                                            "requests": stats.get("requests", 0)})
-        print(f"\n수집 결과에 저장했습니다: {path} (전체 {len(merged):,}건)")
+        path, merged_total = merge_into_snapshot(
+            src.id, rows, dates, requests=stats.get("requests", 0))
+        print(f"\n수집 결과에 저장했습니다: {path} (전체 {merged_total:,}건)")
         print("\n이제 검색할 수 있습니다:")
         print("  python3 golf_web.py --snapshot")
         print("  python3 golf_cli.py --snapshot --from 37.4979,127.0276 \\")

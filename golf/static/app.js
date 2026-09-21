@@ -200,7 +200,11 @@ function renderResults(data) {
     const s = data.stats;
     let msg = "조건에 맞는 티타임이 없습니다.";
     const errs = Object.values(s.source_errors || {});
-    if (s.fetched === 0 && errs.length) {
+    if (data.needs_collect) {
+      // 원인을 정확히 아는 경우다 — 그 날짜를 아직 안 모아 봤을 뿐이다.
+      // "소스 오류" 같은 뭉뚱그린 문구 대신 바로 아래 버튼으로 안내한다.
+      msg += "<br>아직 그 날짜의 티타임을 모아 본 적이 없습니다.";
+    } else if (s.fetched === 0 && errs.length) {
       // 진짜 이유(수집 결과 없음 등)를 "진단 정보" 뒤에 숨기지 않고 바로 보여준다.
       msg += "<br>" + errs.map((e) => escapeHtml(e).replace(/\n/g, "<br>")).join("<br>");
     } else if (s.fetched === 0) {
@@ -214,25 +218,22 @@ function renderResults(data) {
     }
     empty.innerHTML = msg;
     empty.classList.remove("hidden");
+    if (data.needs_collect) renderCollectPrompt(data.needs_collect);
   } else {
     empty.classList.add("hidden");
   }
 }
 
-$("search-form").addEventListener("submit", async (e) => {
-  e.preventDefault();
+let lastSearchParams = null;   // 수집이 끝난 뒤 같은 조건으로 자동 재검색할 때 쓴다
+let collectPollTimer = null;
+
+async function runSearch(params) {
   hideNotice();
   const btn = $("submit-btn");
   btn.disabled = true;
   btn.querySelector(".btn-label").textContent = "검색 중";
   btn.querySelector(".spinner").classList.remove("hidden");
   $("empty").classList.add("hidden");
-
-  const form = new FormData(e.target);
-  const params = new URLSearchParams();
-  for (const [k, v] of form.entries()) {
-    if (String(v).trim()) params.set(k, v);
-  }
 
   try {
     const res = await fetch("/api/search?" + params.toString());
@@ -250,7 +251,96 @@ $("search-form").addEventListener("submit", async (e) => {
     btn.querySelector(".btn-label").textContent = "검색";
     btn.querySelector(".spinner").classList.add("hidden");
   }
+}
+
+$("search-form").addEventListener("submit", (e) => {
+  e.preventDefault();
+  const form = new FormData(e.target);
+  const params = new URLSearchParams();
+  for (const [k, v] of form.entries()) {
+    if (String(v).trim()) params.set(k, v);
+  }
+  lastSearchParams = params;
+  runSearch(params);
 });
+
+// -- 검색한 날짜가 없을 때 그 자리에서 모으기 --------------------------------
+
+function renderCollectPrompt(needsCollect) {
+  const box = $("empty");
+  const { source, date: theDate } = needsCollect;
+  const div = document.createElement("div");
+  div.className = "collect-prompt";
+  div.innerHTML =
+    `<p>${escapeHtml(theDate)} 날짜는 아직 모아 본 적이 없습니다.</p>` +
+    `<button type="button" id="collect-now-btn">지금 모으기 (약 7~10분, ${escapeHtml(source)})</button>` +
+    `<div id="collect-progress" class="collect-progress hidden"></div>`;
+  box.appendChild(div);
+
+  $("collect-now-btn").addEventListener("click", () => startCollectFlow(source, theDate));
+}
+
+async function startCollectFlow(source, theDate) {
+  const btn = $("collect-now-btn");
+  const progress = $("collect-progress");
+  btn.disabled = true;
+  btn.textContent = "시작하는 중…";
+  progress.classList.remove("hidden");
+
+  try {
+    const res = await fetch("/api/collect/start", {
+      method: "POST",
+      headers: { "Content-Type": "application/json" },
+      body: JSON.stringify({ date: theDate }),
+    });
+    const data = await res.json();
+    if (!res.ok || data.error) {
+      progress.innerHTML = `⚠ ${escapeHtml(data.error || "시작하지 못했습니다.")}`;
+      btn.disabled = false;
+      btn.textContent = "다시 시도";
+      return;
+    }
+  } catch (err) {
+    progress.innerHTML = "⚠ 요청이 실패했습니다: " + escapeHtml(err.message);
+    btn.disabled = false;
+    btn.textContent = "다시 시도";
+    return;
+  }
+
+  btn.textContent = "모으는 중…";
+  pollCollectStatus();
+}
+
+function pollCollectStatus() {
+  if (collectPollTimer) clearInterval(collectPollTimer);
+  collectPollTimer = setInterval(async () => {
+    let status;
+    try {
+      status = await (await fetch("/api/collect/status")).json();
+    } catch (err) {
+      return;   // 한 번 실패해도 다음 폴링에서 다시 시도
+    }
+    const progress = $("collect-progress");
+    if (!progress) { clearInterval(collectPollTimer); return; }
+
+    if (status.status === "running") {
+      const bucket = status.current_bucket ? ` · ${escapeHtml(status.current_bucket)}` : "";
+      progress.innerHTML =
+        `모으는 중${bucket} — ${status.rows_so_far.toLocaleString("ko-KR")}건 ` +
+        `· ${Math.floor(status.elapsed_sec / 60)}분 ${Math.floor(status.elapsed_sec % 60)}초`;
+    } else if (status.status === "done") {
+      clearInterval(collectPollTimer);
+      progress.innerHTML =
+        `✅ ${status.result_rows.toLocaleString("ko-KR")}건 모았습니다. 다시 검색합니다…`;
+      if (lastSearchParams) runSearch(lastSearchParams);
+    } else if (status.status === "error") {
+      clearInterval(collectPollTimer);
+      progress.innerHTML = "⚠ 수집 중 오류가 발생했습니다: " + escapeHtml(status.error);
+      const btn = $("collect-now-btn");
+      if (btn) { btn.disabled = false; btn.textContent = "다시 시도"; }
+    }
+  }, 1500);
+}
 
 // 시간대 빠른 선택
 for (const btn of document.querySelectorAll(".presets button")) {

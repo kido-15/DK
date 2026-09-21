@@ -149,6 +149,17 @@ tbody tr.top td:first-child { box-shadow: inset 3px 0 0 var(--accent); }
   margin-top: 30px; padding: 30px; text-align: center; color: var(--muted);
   background: var(--panel); border: 1px dashed var(--line); border-radius: 12px;
 }
+.collect-prompt { margin-top: 16px; }
+.collect-prompt p { margin: 0 0 10px; }
+.collect-prompt button {
+  background: var(--accent); color: #fff; border: 0; border-radius: 8px;
+  padding: 9px 20px; font-size: .88rem; font-weight: 600; cursor: pointer;
+  font-family: inherit;
+}
+.collect-prompt button:disabled { opacity: .6; cursor: progress; }
+.collect-progress {
+  margin-top: 12px; font-size: .85rem; color: var(--muted);
+}
 .hidden { display: none; }
 footer {
   max-width: 1180px; margin: 0 auto; padding: 0 20px 40px;
