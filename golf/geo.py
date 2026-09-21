@@ -14,7 +14,7 @@ import urllib.parse
 import urllib.request
 from typing import Optional
 
-USER_AGENT = "golf-finder/0.1 (personal use)"
+USER_AGENT = "golf-finder/0.1 (+https://github.com/kido-15/dk)"
 EARTH_RADIUS_KM = 6371.0088
 
 # 한반도 대략 범위 — 지오코딩 결과가 엉뚱한 나라로 튀는 것을 거른다.
@@ -57,6 +57,46 @@ def parse_coords(text: str) -> Optional[tuple[float, float]]:
     return (a, b)
 
 
+# 건물 번호·층·호수처럼 지오코딩 서비스가 못 찾는 세부 단위.
+# "테헤란로 152", "역삼동 736-1", "3층", "101호" 처럼 숫자로 시작한다.
+_DETAIL_TOKEN = re.compile(r"^\d")
+
+
+def _address_variants(query: str) -> list[str]:
+    """그 주소를 찾을 법한 표기들. 자세한 것부터 점점 뭉뚱그린다.
+
+    도로명 뒤 건물 번호까지 있는 주소는 지오코딩 서비스가 못 찾는 경우가
+    잦다. 그대로 실패하면 "좌표를 못 찾았다" 고만 알려주고 끝나는데,
+    그러면 사용자가 결국 직접 좌표를 찾아 넣어야 한다 — 이 기능이
+    없애려는 바로 그 수고다.
+
+    번지·층·호수처럼 숫자로 시작하는 마지막 단어를 하나씩 떼어 가며
+    다시 시도하고, 그래도 안 되면 마지막으로 앞 두 단어(시/도 + 시/군/구)
+    만으로 한 번 더 본다.
+
+        "서울시 강남구 테헤란로 152"
+          → "서울시 강남구 테헤란로 152"   (그대로)
+          → "서울시 강남구 테헤란로"       (건물 번호 뗌)
+          → "서울시 강남구"                (도로명까지 뗌, 앞 두 단어)
+    """
+    variants = [query]
+    tokens = query.split()
+
+    trimmed = list(tokens)
+    while trimmed and _DETAIL_TOKEN.match(trimmed[-1]):
+        trimmed = trimmed[:-1]
+        candidate = " ".join(trimmed)
+        if candidate and candidate not in variants:
+            variants.append(candidate)
+
+    if len(tokens) > 2:
+        coarse = " ".join(tokens[:2])
+        if coarse not in variants:
+            variants.append(coarse)
+
+    return variants
+
+
 def _http_json(url: str, *, headers: Optional[dict] = None, timeout: int = 15):
     req = urllib.request.Request(url, headers={"User-Agent": USER_AGENT, **(headers or {})})
     with urllib.request.urlopen(req, timeout=timeout) as resp:
@@ -76,7 +116,12 @@ class Geocoder:
         self._last_nominatim_call = 0.0
 
     def geocode(self, query: str) -> Optional[tuple[float, float]]:
-        """주소나 장소명을 (위도, 경도)로. 실패하면 None."""
+        """주소나 장소명을 (위도, 경도)로. 실패하면 None.
+
+        입력 그대로 먼저 찾아보고, 실패하면 건물 번호 등 세부 단위를 떼어
+        가며 다시 찾는다(_address_variants). 대부분은 첫 시도에서 바로
+        찾아지므로 그 경우엔 추가 요청이 없다.
+        """
         if not query or not query.strip():
             return None
         query = query.strip()
@@ -89,10 +134,13 @@ class Geocoder:
             return self.cache[query]
 
         result = None
-        if self.kakao_key:
-            result = self._kakao(query)
-        if result is None:
-            result = self._nominatim(query)
+        for variant in _address_variants(query):
+            if self.kakao_key:
+                result = self._kakao(variant)
+            if result is None:
+                result = self._nominatim(variant)
+            if result is not None:
+                break
 
         self.cache[query] = result
         return result

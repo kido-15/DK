@@ -64,7 +64,9 @@ def build_query(params: dict[str, list[str]], state: AppState) -> tuple[Optional
     if coords is None:
         return None, (
             f"'{origin}' 의 좌표를 찾지 못했습니다. "
-            "주소를 더 구체적으로 적거나 '37.4979,127.0276' 처럼 좌표를 직접 넣어 보세요."
+            "건물 번호를 빼고 '강남구 테헤란로' 처럼 줄이거나, '강남역' 같은 "
+            "역·건물 이름으로 시도해 보세요. 그래도 안 되면 '37.4979,127.0276' "
+            "처럼 좌표를 직접 넣어도 됩니다."
         )
 
     def as_int(key: str) -> Optional[int]:
