@@ -133,12 +133,14 @@ function renderSummary(results) {
   ).join("");
 }
 
-function renderResults(data) {
+let currentResults = [];         // 화면에 지금 떠 있는 결과 (열 헤더로 다시 정렬할 때 씀)
+let tableSort = { key: null, dir: 1 };   // 마지막으로 클릭한 열과 방향
+
+function renderTable(results) {
   const tbody = document.querySelector("#results tbody");
   tbody.innerHTML = "";
-  renderSummary(data.results);
 
-  data.results.forEach((r, i) => {
+  results.forEach((r, i) => {
     const tr = document.createElement("tr");
     if (i < 3) tr.classList.add("top");
 
@@ -190,6 +192,57 @@ function renderResults(data) {
 
     tbody.appendChild(tr);
   });
+}
+
+// -- 표 헤더 클릭 정렬 -------------------------------------------------------
+//
+// 서버가 이미 한 번 정렬해서 주지만("추천순" 등), 화면에서 특정 항목
+// 기준으로 다시 보고 싶을 때가 있다. 새로 검색하지 않고 받아온 결과를
+// 그대로 다시 늘어놓기만 하면 되므로 클라이언트에서 처리한다.
+//
+// 값이 없는 항목(이동시간 미계산, 가격 미기재 등)은 방향에 상관없이
+// 항상 맨 뒤로 보낸다 — 오름차순으로 정렬했는데 "모름"이 1등으로
+// 올라오면 더 헷갈린다.
+function isUnknownValue(key, v) {
+  if (v == null || v === "") return true;
+  if (key === "green_fee" && v < 0) return true;
+  return false;
+}
+
+function sortResults(results, key, dir, type) {
+  const known = results.filter((r) => !isUnknownValue(key, r[key]));
+  const unknown = results.filter((r) => isUnknownValue(key, r[key]));
+  known.sort((a, b) => {
+    const av = a[key], bv = b[key];
+    const cmp = type === "num" ? av - bv : String(av).localeCompare(String(bv), "ko");
+    return cmp * dir;
+  });
+  return known.concat(unknown);
+}
+
+function updateSortHeaders() {
+  document.querySelectorAll("#results thead th[data-key]").forEach((th) => {
+    th.classList.toggle("sorted-asc", th.dataset.key === tableSort.key && tableSort.dir === 1);
+    th.classList.toggle("sorted-desc", th.dataset.key === tableSort.key && tableSort.dir === -1);
+  });
+}
+
+document.querySelectorAll("#results thead th[data-key]").forEach((th) => {
+  th.addEventListener("click", () => {
+    const key = th.dataset.key;
+    tableSort.dir = tableSort.key === key ? -tableSort.dir : 1;
+    tableSort.key = key;
+    updateSortHeaders();
+    renderTable(sortResults(currentResults, key, tableSort.dir, th.dataset.type));
+  });
+});
+
+function renderResults(data) {
+  currentResults = data.results;
+  tableSort = { key: null, dir: 1 };
+  updateSortHeaders();
+  renderSummary(data.results);
+  renderTable(data.results);
 
   $("result-count").textContent = `${data.results.length}건`;
   $("results-section").classList.remove("hidden");
