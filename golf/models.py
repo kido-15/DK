@@ -128,6 +128,19 @@ _BOOKING_QUALIFIERS = re.compile(
     re.IGNORECASE,
 )
 
+# 이름이나 홀 수 표시에 "9홀 코스"라는 뜻이 담겨 있는지.
+#
+#     빅토리아-퍼9    → 9홀을 두 바퀴 돌아 18홀을 채우는 코스
+#     스프링베일-퍼9  → 마찬가지
+#
+# "19홀"·"29홀" 같은 걸 오인하지 않게 앞뒤로 다른 숫자가 붙어 있으면 뺀다.
+_NINE_HOLE_TAG = re.compile(r"퍼\s*9(?!\d)|(?<!\d)9\s*홀")
+
+
+def has_nine_hole_tag(text: str) -> bool:
+    """이름이나 hole_info에 9홀(하프) 코스 표시가 있으면 True."""
+    return bool(_NINE_HOLE_TAG.search(text or ""))
+
 # "(구.큐로cc)" 처럼 괄호 안에 적어 주는 옛 이름.
 # 골프장 DB 가 아직 옛 이름으로 들고 있을 수 있어, 따로 뽑아 후보로 쓴다.
 _FORMER_NAME = re.compile(r"[(\[]\s*구[.\s]\s*([^)\]]+)[)\]]")
@@ -298,6 +311,7 @@ class SearchQuery:
     max_price: Optional[int] = None          # 1인 그린피 상한 (원)
     min_price: Optional[int] = None
     include_unknown_price: bool = False      # 가격이 안 적힌 티타임도 포함할지
+    exclude_nine_holes: bool = False         # 9홀(하프) 코스 제외할지
 
     regions: list[str] = field(default_factory=list)  # 지역 필터 (예: ["경기", "충북"])
     sort: str = "score"               # score | price | drive | tee_time
@@ -316,6 +330,8 @@ class SearchQuery:
             parts.append(f"이동: {self.max_drive_minutes}분 이내")
         if self.max_price:
             parts.append(f"그린피: {self.max_price:,}원 이하")
+        if self.exclude_nine_holes:
+            parts.append("9홀 코스 제외")
         return " / ".join(parts)
 
 

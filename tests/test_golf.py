@@ -203,6 +203,8 @@ class TestSearch(unittest.TestCase):
                    aliases=["레이크사이드"]),
             Course("c3", "제이드팰리스골프클럽", 37.8200, 127.6500, "강원",
                    aliases=["제이드팰리스"]),
+            Course("c4", "스프링베일컨트리클럽", 37.8760, 127.7850, "강원", holes=9),
+            Course("c5", "빅토리아컨트리클럽", 37.5, 127.1, "경기"),
         ])
         self.csv = os.path.join(os.path.dirname(__file__), "_tmp_teetimes.csv")
         with open(self.csv, "w", encoding="utf-8") as f:
@@ -211,6 +213,8 @@ class TestSearch(unittest.TestCase):
             f.write("레이크사이드,2026-09-20,07:12,158000,https://x/2\n")
             f.write("제이드팰리스,2026-09-20,07:50,250000,https://x/3\n")
             f.write("모르는골프장,2026-09-20,08:00,100000,https://x/4\n")
+            f.write("스프링베일-퍼9,2026-09-20,09:00,90000,https://x/5\n")
+            f.write("빅토리아-퍼9,2026-09-20,09:30,80000,https://x/6\n")
         self.engine = GolfSearch(self.book, [CsvSource(self.csv)],
                                  Router(providers=["estimate"]))
 
@@ -267,6 +271,29 @@ class TestSearch(unittest.TestCase):
     def test_region_filter(self):
         res, _ = self.engine.search(self._q(regions=["강원"]))
         self.assertTrue(all(r.tee_time.course.region == "강원" for r in res))
+
+    def test_nine_hole_included_by_default(self):
+        res, _ = self.engine.search(self._q())
+        names = [r.tee_time.course_name for r in res]
+        self.assertIn("스프링베일-퍼9", names)
+        self.assertIn("빅토리아-퍼9", names)
+
+    def test_exclude_nine_holes_by_db_field(self):
+        """DB에 holes=9로 등록된 골프장은 이름에 표시가 없어도 걸러진다."""
+        res, _ = self.engine.search(self._q(exclude_nine_holes=True))
+        names = [r.tee_time.course_name for r in res]
+        self.assertNotIn("스프링베일-퍼9", names)
+
+    def test_exclude_nine_holes_by_name_tag(self):
+        """DB에 holes 정보가 없어도 예약 사이트 표기("-퍼9")로 걸러진다."""
+        res, _ = self.engine.search(self._q(exclude_nine_holes=True))
+        names = [r.tee_time.course_name for r in res]
+        self.assertNotIn("빅토리아-퍼9", names)
+
+    def test_exclude_nine_holes_keeps_others(self):
+        res, _ = self.engine.search(self._q(exclude_nine_holes=True))
+        names = [r.tee_time.course_name for r in res]
+        self.assertIn("남서울CC", names)
 
 
 class TestRouting(unittest.TestCase):
