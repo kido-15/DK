@@ -11,6 +11,7 @@
 <header class="top">
   <h1>⛳ 골프장 티타임 검색</h1>
   <p class="sub">출발 위치 · 이동 희망 시간 · 가격을 넣으면 조건에 맞는 예약 가능한 티타임을 찾습니다.</p>
+  <div id="meta-badges" class="meta-badges"></div>
 </header>
 
 <main>
@@ -80,14 +81,15 @@
     </div>
 
     <div class="actions">
-      <button type="submit" id="submit-btn">검색</button>
-      <span id="meta-line" class="meta-line"></span>
+      <button type="submit" id="submit-btn"><span class="btn-label">검색</span><span class="spinner hidden"></span></button>
     </div>
   </form>
 
   <div id="notice" class="notice hidden"></div>
 
   <section id="results-section" class="hidden">
+    <div class="summary-chips" id="summary-chips"></div>
+
     <div class="results-head">
       <h2>검색 결과 <span id="result-count"></span></h2>
       <button type="button" id="toggle-stats" class="linkish">진단 정보 보기</button>

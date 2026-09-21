@@ -23,15 +23,21 @@ async function loadMeta() {
     return;
   }
 
-  const bits = [`골프장 DB ${META.course_count.toLocaleString("ko-KR")}곳`];
-  const enabled = (META.sources || []).length;
-  bits.push(`소스 ${enabled}개`);
   const routing = Object.entries(META.routing || {})
     .filter(([k]) => k !== "estimate")
     .filter(([, v]) => v === "사용 가능")
     .map(([k]) => PROVIDER_LABEL[k] || k);
-  bits.push(routing.length ? `길찾기: ${routing.join(", ")}` : "길찾기: 좌표 추정만");
-  $("meta-line").textContent = bits.join(" · ");
+
+  const badges = [
+    { text: `⛳ 골프장 ${META.course_count.toLocaleString("ko-KR")}곳`, cls: "" },
+    { text: `📡 소스 ${(META.sources || []).length}개`, cls: "dim" },
+    routing.length
+      ? { text: `🚗 길찾기: ${routing.join(", ")}`, cls: "dim" }
+      : { text: "🚗 길찾기: 좌표 추정만", cls: "warn" },
+  ];
+  $("meta-badges").innerHTML = badges
+    .map((b) => `<span class="badge ${b.cls}">${escapeHtml(b.text)}</span>`)
+    .join("");
 
   const sel = $("regions");
   for (const r of META.regions || []) {
@@ -108,16 +114,38 @@ function escapeHtml(s) {
     ({ "&": "&amp;", "<": "&lt;", ">": "&gt;", '"': "&quot;", "'": "&#39;" }[c]));
 }
 
+function renderSummary(results) {
+  const box = $("summary-chips");
+  if (!results.length) { box.innerHTML = ""; return; }
+
+  const fees = results.map((r) => r.green_fee).filter((v) => v != null && v >= 0);
+  const drives = results.map((r) => r.drive_minutes).filter((v) => v != null);
+  const courses = new Set(results.map((r) => r.display_name)).size;
+
+  const chips = [
+    { k: "검색된 골프장", v: `${courses.toLocaleString("ko-KR")}곳`, hi: false },
+    { k: "최저 그린피", v: fees.length ? fmtWon(Math.min(...fees)) : "—", hi: true },
+    { k: "최단 이동시간", v: drives.length ? `${Math.min(...drives)}분` : "—", hi: true },
+    { k: "전체 결과", v: `${results.length.toLocaleString("ko-KR")}건`, hi: false },
+  ];
+  box.innerHTML = chips.map((c) =>
+    `<div class="chip${c.hi ? " hi" : ""}"><span class="k">${c.k}</span><span class="v">${c.v}</span></div>`
+  ).join("");
+}
+
 function renderResults(data) {
   const tbody = document.querySelector("#results tbody");
   tbody.innerHTML = "";
+  renderSummary(data.results);
 
-  for (const r of data.results) {
+  data.results.forEach((r, i) => {
     const tr = document.createElement("tr");
+    if (i < 3) tr.classList.add("top");
 
     const name = document.createElement("td");
     name.className = "course-name";
-    name.innerHTML = escapeHtml(r.display_name) +
+    name.innerHTML = (i < 3 ? `<span class="top-badge">TOP${i + 1}</span>` : "") +
+      escapeHtml(r.display_name) +
       (r.address ? `<span class="addr">${escapeHtml(r.address)}</span>` : "");
     tr.appendChild(name);
 
@@ -161,7 +189,7 @@ function renderResults(data) {
     tr.appendChild(book);
 
     tbody.appendChild(tr);
-  }
+  });
 
   $("result-count").textContent = `${data.results.length}건`;
   $("results-section").classList.remove("hidden");
@@ -192,7 +220,8 @@ $("search-form").addEventListener("submit", async (e) => {
   hideNotice();
   const btn = $("submit-btn");
   btn.disabled = true;
-  btn.textContent = "검색 중…";
+  btn.querySelector(".btn-label").textContent = "검색 중";
+  btn.querySelector(".spinner").classList.remove("hidden");
   $("empty").classList.add("hidden");
 
   const form = new FormData(e.target);
@@ -214,7 +243,8 @@ $("search-form").addEventListener("submit", async (e) => {
     showNotice("검색 요청이 실패했습니다: " + escapeHtml(err.message), true);
   } finally {
     btn.disabled = false;
-    btn.textContent = "검색";
+    btn.querySelector(".btn-label").textContent = "검색";
+    btn.querySelector(".spinner").classList.add("hidden");
   }
 });
 
