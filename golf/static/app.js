@@ -199,7 +199,11 @@ function renderResults(data) {
   if (data.results.length === 0) {
     const s = data.stats;
     let msg = "조건에 맞는 티타임이 없습니다.";
-    if (s.fetched === 0) {
+    const errs = Object.values(s.source_errors || {});
+    if (s.fetched === 0 && errs.length) {
+      // 진짜 이유(수집 결과 없음 등)를 "진단 정보" 뒤에 숨기지 않고 바로 보여준다.
+      msg += "<br>" + errs.map((e) => escapeHtml(e).replace(/\n/g, "<br>")).join("<br>");
+    } else if (s.fetched === 0) {
       msg += "<br>소스에서 받아온 티타임 자체가 0건입니다. 소스 설정이나 네트워크를 확인해 주세요.";
     } else if (s.after_basic === 0) {
       msg += "<br>가격이나 시간대 조건을 완화해 보세요.";

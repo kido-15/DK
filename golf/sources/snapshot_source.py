@@ -29,7 +29,9 @@ class SnapshotSource:
         if not os.path.exists(self.path):
             self.last_error = (
                 f"수집 결과가 없습니다: {self.path}\n"
-                "  python3 scripts/crawl_all.py 를 먼저 실행하세요."
+                "  아래 중 하나를 먼저 실행하세요.\n"
+                "  python3 scripts/collect_full.py golfpang --days 3   (예약 사이트)\n"
+                "  python3 scripts/crawl_all.py                       (골프장 홈페이지 직접 수집)"
             )
             return []
 
