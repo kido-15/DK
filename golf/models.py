@@ -315,7 +315,7 @@ class SearchQuery:
 
     regions: list[str] = field(default_factory=list)  # 지역 필터 (예: ["경기", "충북"])
     sort: str = "score"               # score | price | drive | tee_time
-    limit: int = 50
+    limit: Optional[int] = None       # 없으면 조건에 맞는 결과 전부
 
     def describe(self) -> str:
         """사람이 읽을 수 있는 조건 요약."""

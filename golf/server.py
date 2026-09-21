@@ -113,7 +113,7 @@ def build_query(params: dict[str, list[str]], state: AppState) -> tuple[Optional
         exclude_nine_holes=one("exclude_nine_holes") in ("1", "true", "on", "yes"),
         regions=[r.strip() for r in regions],
         sort=one("sort", "score") or "score",
-        limit=as_int("limit") or 50,
+        limit=as_int("limit"),
     ), ""
 
 
