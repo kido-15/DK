@@ -251,6 +251,8 @@ function renderResults(data) {
   $("results-section").classList.remove("hidden");
   renderStats(data.stats);
 
+  renderCollectBanner(data.needs_collect);
+
   const empty = $("empty");
   if (data.results.length === 0) {
     const s = data.stats;
@@ -258,7 +260,7 @@ function renderResults(data) {
     const errs = Object.values(s.source_errors || {});
     if (data.needs_collect) {
       // 원인을 정확히 아는 경우다 — 그 날짜를 아직 안 모아 봤을 뿐이다.
-      // "소스 오류" 같은 뭉뚱그린 문구 대신 바로 아래 버튼으로 안내한다.
+      // 실제 버튼은 위쪽 배너(renderCollectBanner)에 있다.
       msg += "<br>아직 그 날짜의 티타임을 모아 본 적이 없습니다.";
     } else if (s.fetched === 0 && errs.length) {
       // 진짜 이유(수집 결과 없음 등)를 "진단 정보" 뒤에 숨기지 않고 바로 보여준다.
@@ -274,7 +276,6 @@ function renderResults(data) {
     }
     empty.innerHTML = msg;
     empty.classList.remove("hidden");
-    if (data.needs_collect) renderCollectPrompt(data.needs_collect);
   } else {
     empty.classList.add("hidden");
   }
@@ -320,26 +321,31 @@ $("search-form").addEventListener("submit", (e) => {
   runSearch(params);
 });
 
-// -- 검색한 날짜가 없을 때 그 자리에서 모으기 --------------------------------
+// -- 검색한 날짜에 아직 안 모은 소스가 있으면 그 자리에서 모으기 ---------------
 //
-// 소스가 여러 개(골팡·카카오골프예약)라, 하나만 빠져도 알려 주고 버튼
-// 하나로 빠진 것들을 한꺼번에 시작한다. 소스마다 걸리는 시간이 달라
-// (카카오는 골프장을 하나씩 돌아 훨씬 오래 걸린다) 진행 상황도 소스별로
-// 따로 보여 준다.
+// 소스가 여러 개(골팡·카카오골프예약)라, 다른 소스가 이미 결과를 줘서
+// 검색 결과가 나온 뒤에도 특정 소스는 빠져 있을 수 있다("골팡만 모으고
+// 카카오는 빠뜨린 채" 착각하지 않도록) — 그래서 결과가 있든 없든 늘
+// 같은 배너에 띄운다. 버튼 하나로 빠진 소스들을 한꺼번에 시작하고,
+// 소스마다 걸리는 시간이 달라(카카오는 골프장을 하나씩 돌아 훨씬 오래
+// 걸린다) 진행 상황도 소스별로 따로 보여 준다.
 
 const SOURCE_LABELS = { golfpang: "골팡", kakao: "카카오골프예약" };
 const sourceLabel = (id) => SOURCE_LABELS[id] || id;
 
-function renderCollectPrompt(needsCollect) {
-  const box = $("empty");
+function renderCollectBanner(needsCollect) {
+  const box = $("collect-banner");
+  if (!needsCollect || !needsCollect.length) {
+    box.innerHTML = "";
+    box.classList.add("hidden");
+    return;
+  }
   const names = needsCollect.map((n) => sourceLabel(n.source)).join(" · ");
-  const div = document.createElement("div");
-  div.className = "collect-prompt";
-  div.innerHTML =
+  box.innerHTML =
     `<p>아직 모아 본 적 없는 소스가 있습니다: ${escapeHtml(names)}</p>` +
     `<button type="button" id="collect-now-btn">지금 모으기 (${escapeHtml(names)})</button>` +
     `<div id="collect-progress" class="collect-progress hidden"></div>`;
-  box.appendChild(div);
+  box.classList.remove("hidden");
 
   $("collect-now-btn").addEventListener("click", () => startCollectFlow(needsCollect));
 }

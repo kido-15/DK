@@ -231,12 +231,12 @@ class Handler(BaseHTTPRequestHandler):
             "stats": stats.to_dict(),
         }
 
-        # 그 날짜를 요청했는데 아무것도 못 받아 왔으면, 검색 조건이 아니라
-        # "아직 그 날짜를 모아 본 적이 없는 것" 일 수 있다. 소스별로 이미
-        # 시도해서 빈 날짜로 확인된 경우는 다시 권하지 않는다
-        # (collect.needs_collect). 소스가 여럿이면 아직 안 모은 것들을
-        # 전부 알려 준다 — 골팡만 모으고 카카오는 빠뜨리는 일이 없게.
-        if q.play_date is not None and stats.fetched == 0:
+        # 소스 중 그 날짜를 아직 안 모아 본 게 있으면 알려 준다. 다른 소스가
+        # 이미 결과를 줬어도(fetched > 0) 상관없이 확인한다 — 골팡만 모으고
+        # 카카오는 빠뜨린 채로 결과가 나오면, 그 사실을 모르고 "검색되는
+        # 대로가 전부"라고 착각하기 쉽다. 이미 시도해서 빈 날짜로 확인된
+        # 소스는 다시 권하지 않는다(collect.needs_collect).
+        if q.play_date is not None:
             missing = [s for s in st.auto_collect_sources
                       if collect.needs_collect(s, q.play_date)]
             if missing:

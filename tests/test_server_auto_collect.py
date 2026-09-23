@@ -90,9 +90,15 @@ class TestAutoCollectOverHttp(unittest.TestCase):
         with open(self.cfg_path, "w", encoding="utf-8") as f:
             json.dump(cfg, f, ensure_ascii=False)
 
-        # 이번 시험에서만 "webfake" 를 자동 수집 대상으로 쓴다.
+        # 두 번째 소스("webfake2") — 실제로는 한 번도 수집하지 않고,
+        # golfpang은 모았는데 카카오는 빠뜨린 상황을 흉내 낼 때 쓴다.
+        cfg2 = json.loads(json.dumps(cfg))
+        cfg2["sources"][0]["id"] = "webfake2"
+        cfg2["sources"][0]["name"] = "가짜2"
+
+        # 이번 시험에서만 "webfake"·"webfake2" 를 자동 수집 대상으로 쓴다.
         self._orig_auto = server.AUTO_COLLECT_SOURCES
-        server.AUTO_COLLECT_SOURCES = ["webfake"]
+        server.AUTO_COLLECT_SOURCES = ["webfake", "webfake2"]
 
         # jobs.start 가 이 설정 경로를 쓰도록, 실제 CollectJobManager 의
         # 기본 러너를 그대로 쓰되 config_path 를 넘겨야 한다 — 서버는
@@ -102,6 +108,8 @@ class TestAutoCollectOverHttp(unittest.TestCase):
         cfg_dir = os.path.join(self.tmp, "config")
         os.makedirs(cfg_dir, exist_ok=True)
         shutil.copy(self.cfg_path, os.path.join(cfg_dir, "sources.webfake.json"))
+        with open(os.path.join(cfg_dir, "sources.webfake2.json"), "w", encoding="utf-8") as f:
+            json.dump(cfg2, f, ensure_ascii=False)
         self._orig_config_dir = collect.CONFIG_DIR
         collect.CONFIG_DIR = cfg_dir
 
@@ -109,7 +117,7 @@ class TestAutoCollectOverHttp(unittest.TestCase):
         snap_src = SnapshotSource(path=os.path.join(self.snap_dir, "latest.json"),
                                   source_id="webfake")
         state = server.AppState(book, [snap_src], Router(providers=["estimate"]),
-                                Geocoder(), auto_collect_sources=["webfake"])
+                                Geocoder(), auto_collect_sources=["webfake", "webfake2"])
 
         self.httpd = ThreadingHTTPServer(("127.0.0.1", 0),
                                          type("H", (server.Handler,), {"state": state}))
@@ -139,7 +147,10 @@ class TestAutoCollectOverHttp(unittest.TestCase):
                     f"/api/search?origin=37.5,127.0&date={DAY.isoformat()}")
         self.assertEqual(resp["stats"]["fetched"], 0)
         self.assertIn("needs_collect", resp)
-        self.assertEqual(resp["needs_collect"], [{"source": "webfake", "date": DAY.isoformat()}])
+        self.assertEqual(resp["needs_collect"], [
+            {"source": "webfake", "date": DAY.isoformat()},
+            {"source": "webfake2", "date": DAY.isoformat()},
+        ])
 
     def test_start_then_status_then_search_succeeds(self):
         started = _post(self.base, "/api/collect/start",
@@ -155,10 +166,15 @@ class TestAutoCollectOverHttp(unittest.TestCase):
         self.assertEqual(status["status"], "done", status)
         self.assertGreater(status["result_rows"], 0)
 
+        # "webfake" 는 모았지만 "webfake2" 는 아직이다. 검색 결과가 이미
+        # 나온다고 해서(fetched > 0) needs_collect 가 사라지면 안 된다 —
+        # 한 소스만 모으고 다른 소스는 빠뜨린 채 결과가 나오는 것과
+        # 똑같은 상황을 놓치게 된다(실제로 골팡만 모으고 카카오골프예약을
+        # 빠뜨렸던 문제).
         resp = _get(self.base,
                     f"/api/search?origin=37.5,127.0&date={DAY.isoformat()}")
         self.assertGreater(resp["stats"]["fetched"], 0)
-        self.assertNotIn("needs_collect", resp)
+        self.assertEqual(resp["needs_collect"], [{"source": "webfake2", "date": DAY.isoformat()}])
 
     def test_double_start_reports_already_running(self):
         r1 = _post(self.base, "/api/collect/start",

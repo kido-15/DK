@@ -156,13 +156,17 @@ tbody tr.top td:first-child { box-shadow: inset 3px 0 0 var(--accent); }
   background: var(--panel); border: 1px dashed var(--line); border-radius: 12px;
 }
 .collect-prompt { margin-top: 16px; }
-.collect-prompt p { margin: 0 0 10px; }
-.collect-prompt button {
+.collect-banner {
+  margin: 14px 0; padding: 14px 16px; border-radius: 10px;
+  background: var(--warn-bg); border: 1px solid var(--warn-line); font-size: .88rem;
+}
+.collect-prompt p, .collect-banner p { margin: 0 0 10px; }
+.collect-prompt button, .collect-banner button {
   background: var(--accent); color: #fff; border: 0; border-radius: 8px;
   padding: 9px 20px; font-size: .88rem; font-weight: 600; cursor: pointer;
   font-family: inherit;
 }
-.collect-prompt button:disabled { opacity: .6; cursor: progress; }
+.collect-prompt button:disabled, .collect-banner button:disabled { opacity: .6; cursor: progress; }
 .collect-progress {
   margin-top: 12px; font-size: .85rem; color: var(--muted);
 }
