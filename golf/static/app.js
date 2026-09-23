@@ -318,79 +318,101 @@ $("search-form").addEventListener("submit", (e) => {
 });
 
 // -- 검색한 날짜가 없을 때 그 자리에서 모으기 --------------------------------
+//
+// 소스가 여러 개(골팡·카카오골프예약)라, 하나만 빠져도 알려 주고 버튼
+// 하나로 빠진 것들을 한꺼번에 시작한다. 소스마다 걸리는 시간이 달라
+// (카카오는 골프장을 하나씩 돌아 훨씬 오래 걸린다) 진행 상황도 소스별로
+// 따로 보여 준다.
+
+const SOURCE_LABELS = { golfpang: "골팡", kakao: "카카오골프예약" };
+const sourceLabel = (id) => SOURCE_LABELS[id] || id;
 
 function renderCollectPrompt(needsCollect) {
   const box = $("empty");
-  const { source, date: theDate } = needsCollect;
+  const names = needsCollect.map((n) => sourceLabel(n.source)).join(" · ");
   const div = document.createElement("div");
   div.className = "collect-prompt";
   div.innerHTML =
-    `<p>${escapeHtml(theDate)} 날짜는 아직 모아 본 적이 없습니다.</p>` +
-    `<button type="button" id="collect-now-btn">지금 모으기 (약 7~10분, ${escapeHtml(source)})</button>` +
+    `<p>아직 모아 본 적 없는 소스가 있습니다: ${escapeHtml(names)}</p>` +
+    `<button type="button" id="collect-now-btn">지금 모으기 (${escapeHtml(names)})</button>` +
     `<div id="collect-progress" class="collect-progress hidden"></div>`;
   box.appendChild(div);
 
-  $("collect-now-btn").addEventListener("click", () => startCollectFlow(source, theDate));
+  $("collect-now-btn").addEventListener("click", () => startCollectFlow(needsCollect));
 }
 
-async function startCollectFlow(source, theDate) {
+async function startCollectFlow(needsCollect) {
   const btn = $("collect-now-btn");
   const progress = $("collect-progress");
   btn.disabled = true;
   btn.textContent = "시작하는 중…";
   progress.classList.remove("hidden");
 
-  try {
-    const res = await fetch("/api/collect/start", {
-      method: "POST",
-      headers: { "Content-Type": "application/json" },
-      body: JSON.stringify({ date: theDate }),
-    });
-    const data = await res.json();
-    if (!res.ok || data.error) {
-      progress.innerHTML = `⚠ ${escapeHtml(data.error || "시작하지 못했습니다.")}`;
-      btn.disabled = false;
-      btn.textContent = "다시 시도";
-      return;
+  const started = [];
+  for (const { source, date: theDate } of needsCollect) {
+    try {
+      const res = await fetch("/api/collect/start", {
+        method: "POST",
+        headers: { "Content-Type": "application/json" },
+        body: JSON.stringify({ source, date: theDate }),
+      });
+      const data = await res.json();
+      if (!res.ok || data.error) {
+        progress.innerHTML += `<div>⚠ ${escapeHtml(sourceLabel(source))}: ${escapeHtml(data.error || "시작하지 못했습니다.")}</div>`;
+        continue;
+      }
+      started.push(source);
+    } catch (err) {
+      progress.innerHTML += `<div>⚠ ${escapeHtml(sourceLabel(source))}: 요청이 실패했습니다 (${escapeHtml(err.message)})</div>`;
     }
-  } catch (err) {
-    progress.innerHTML = "⚠ 요청이 실패했습니다: " + escapeHtml(err.message);
+  }
+
+  if (!started.length) {
     btn.disabled = false;
     btn.textContent = "다시 시도";
     return;
   }
 
   btn.textContent = "모으는 중…";
-  pollCollectStatus();
+  pollCollectStatus(started);
 }
 
-function pollCollectStatus() {
+function pollCollectStatus(sources) {
   if (collectPollTimer) clearInterval(collectPollTimer);
+  const pending = new Set(sources);
+  const lines = {};
+
   collectPollTimer = setInterval(async () => {
-    let status;
-    try {
-      status = await (await fetch("/api/collect/status")).json();
-    } catch (err) {
-      return;   // 한 번 실패해도 다음 폴링에서 다시 시도
-    }
     const progress = $("collect-progress");
     if (!progress) { clearInterval(collectPollTimer); return; }
 
-    if (status.status === "running") {
-      const bucket = status.current_bucket ? ` · ${escapeHtml(status.current_bucket)}` : "";
-      progress.innerHTML =
-        `모으는 중${bucket} — ${status.rows_so_far.toLocaleString("ko-KR")}건 ` +
-        `· ${Math.floor(status.elapsed_sec / 60)}분 ${Math.floor(status.elapsed_sec % 60)}초`;
-    } else if (status.status === "done") {
+    for (const source of Array.from(pending)) {
+      let status;
+      try {
+        status = await (await fetch("/api/collect/status?source=" + encodeURIComponent(source))).json();
+      } catch (err) {
+        continue;   // 이번 폴링만 건너뛰고 다음에 다시 시도
+      }
+      const label = sourceLabel(source);
+      if (status.status === "running") {
+        const bucket = status.current_bucket ? ` · ${escapeHtml(status.current_bucket)}` : "";
+        lines[source] =
+          `${escapeHtml(label)}: 모으는 중${bucket} — ${status.rows_so_far.toLocaleString("ko-KR")}건 ` +
+          `· ${Math.floor(status.elapsed_sec / 60)}분 ${Math.floor(status.elapsed_sec % 60)}초`;
+      } else if (status.status === "done") {
+        lines[source] = `${escapeHtml(label)}: ✅ ${status.result_rows.toLocaleString("ko-KR")}건 모았습니다.`;
+        pending.delete(source);
+      } else if (status.status === "error") {
+        lines[source] = `${escapeHtml(label)}: ⚠ 오류 — ${escapeHtml(status.error)}`;
+        pending.delete(source);
+      }
+    }
+    progress.innerHTML = Object.values(lines).map((l) => `<div>${l}</div>`).join("");
+
+    if (pending.size === 0) {
       clearInterval(collectPollTimer);
-      progress.innerHTML =
-        `✅ ${status.result_rows.toLocaleString("ko-KR")}건 모았습니다. 다시 검색합니다…`;
+      progress.innerHTML += "<div>다시 검색합니다…</div>";
       if (lastSearchParams) runSearch(lastSearchParams);
-    } else if (status.status === "error") {
-      clearInterval(collectPollTimer);
-      progress.innerHTML = "⚠ 수집 중 오류가 발생했습니다: " + escapeHtml(status.error);
-      const btn = $("collect-now-btn");
-      if (btn) { btn.disabled = false; btn.textContent = "다시 시도"; }
     }
   }, 1500);
 }

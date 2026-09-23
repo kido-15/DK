@@ -10,9 +10,9 @@ API
     GET  /api/meta                     골프장 수, 소스 목록, 길찾기 제공자 상태
     GET  /api/search?origin=...        검색 (아래 param 참고)
     GET  /api/regions                  지역 목록
-    GET  /api/collect/status           지금 모으기 작업이 도는 중인지·어디까지 됐는지
+    GET  /api/collect/status?source=.. 지금 모으기 작업이 도는 중인지·어디까지 됐는지
     POST /api/collect/start            검색한 날짜를 그 자리에서 모으기 시작
-                                        (본문: {"date": "2026-09-22"})
+                                        (본문: {"source": "golfpang", "date": "2026-09-22"})
 """
 
 from __future__ import annotations
@@ -34,10 +34,9 @@ from .routing import Router
 from .search import GolfSearch
 from .sources import CsvSource, SnapshotSource, load_sources
 
-# 검색한 날짜가 스냅샷에 없을 때 화면에서 바로 모을 대상 소스.
-# 지금은 실제로 전량 수집이 되는 플랫폼이 골팡뿐이라 이걸로 고정한다.
-# 그 설정 자체가 없는 환경(예: 시험 환경)에서는 이 기능이 조용히 꺼진다.
-AUTO_COLLECT_SOURCE = "golfpang"
+# 검색한 날짜가 스냅샷에 없을 때 화면에서 바로 모을 수 있는 소스들.
+# 그 설정 자체가 없는 환경(예: 시험 환경)에서는 소스별로 조용히 빠진다.
+AUTO_COLLECT_SOURCES = ["golfpang", "kakao"]
 
 STATIC_DIR = os.path.join(os.path.dirname(os.path.abspath(__file__)), "static")
 
@@ -52,19 +51,19 @@ class AppState:
         router: Router,
         geocoder: Geocoder,
         *,
-        auto_collect_source: str = "",
+        auto_collect_sources: Optional[list[str]] = None,
     ):
         self.book = book
         self.sources = sources
         self.router = router
         self.geocoder = geocoder
         self.engine = GolfSearch(book, sources, router)
-        # 그 소스 설정이 실제로 있을 때만 "지금 모으기" 를 켠다.
-        self.auto_collect_source = ""
-        if auto_collect_source:
+        # 설정이 실제로 있는 소스만 "지금 모으기" 대상으로 켠다.
+        self.auto_collect_sources: list[str] = []
+        for source_id in auto_collect_sources or []:
             try:
-                collect.load_source_config(auto_collect_source)
-                self.auto_collect_source = auto_collect_source
+                collect.load_source_config(source_id)
+                self.auto_collect_sources.append(source_id)
             except collect.ConfigNotFound:
                 pass
         self.jobs = CollectJobManager()
@@ -172,7 +171,7 @@ class Handler(BaseHTTPRequestHandler):
             elif path == "/api/search":
                 self._api_search(params)
             elif path == "/api/collect/status":
-                self._api_collect_status()
+                self._api_collect_status(params)
             else:
                 self._send(404, b"not found", "text/plain; charset=utf-8")
         except Exception:
@@ -210,7 +209,7 @@ class Handler(BaseHTTPRequestHandler):
             "today": date.today().isoformat(),
             "has_courses": len(st.book) > 0,
             "has_sources": len(st.sources) > 0,
-            "auto_collect_source": st.auto_collect_source,
+            "auto_collect_sources": st.auto_collect_sources,
         })
 
     def _api_search(self, params):
@@ -233,29 +232,33 @@ class Handler(BaseHTTPRequestHandler):
         }
 
         # 그 날짜를 요청했는데 아무것도 못 받아 왔으면, 검색 조건이 아니라
-        # "아직 그 날짜를 모아 본 적이 없는 것" 일 수 있다. 이미 시도해서
-        # 빈 날짜로 확인된 경우는 다시 권하지 않는다(collect.needs_collect).
-        if (st.auto_collect_source and q.play_date is not None
-                and stats.fetched == 0
-                and collect.needs_collect(st.auto_collect_source, q.play_date)):
-            payload["needs_collect"] = {
-                "source": st.auto_collect_source,
-                "date": q.play_date.isoformat(),
-            }
+        # "아직 그 날짜를 모아 본 적이 없는 것" 일 수 있다. 소스별로 이미
+        # 시도해서 빈 날짜로 확인된 경우는 다시 권하지 않는다
+        # (collect.needs_collect). 소스가 여럿이면 아직 안 모은 것들을
+        # 전부 알려 준다 — 골팡만 모으고 카카오는 빠뜨리는 일이 없게.
+        if q.play_date is not None and stats.fetched == 0:
+            missing = [s for s in st.auto_collect_sources
+                      if collect.needs_collect(s, q.play_date)]
+            if missing:
+                payload["needs_collect"] = [
+                    {"source": s, "date": q.play_date.isoformat()} for s in missing
+                ]
 
         self._json(payload)
 
-    def _api_collect_status(self):
+    def _api_collect_status(self, params):
         st = self.state
-        if not st.auto_collect_source:
-            self._json({"error": "그 자리에서 모으는 기능이 설정되지 않았습니다."}, 400)
+        source = (params.get("source") or [""])[0].strip()
+        if source not in st.auto_collect_sources:
+            self._json({"error": f"알 수 없는 소스입니다: {source!r}"}, 400)
             return
-        self._json(st.jobs.status(st.auto_collect_source))
+        self._json(st.jobs.status(source))
 
     def _api_collect_start(self, body: dict):
         st = self.state
-        if not st.auto_collect_source:
-            self._json({"error": "그 자리에서 모으는 기능이 설정되지 않았습니다."}, 400)
+        source = str(body.get("source") or "").strip()
+        if source not in st.auto_collect_sources:
+            self._json({"error": f"알 수 없는 소스입니다: {source!r}"}, 400)
             return
 
         raw_date = str(body.get("date") or "").strip()
@@ -264,7 +267,7 @@ class Handler(BaseHTTPRequestHandler):
             self._json({"error": f"날짜를 이해할 수 없습니다: {raw_date!r}"}, 400)
             return
 
-        result = st.jobs.start(st.auto_collect_source, [d])
+        result = st.jobs.start(source, [d])
         self._json(result)
 
 
@@ -293,9 +296,9 @@ def make_state(
     geocoder = Geocoder(kakao_key=os.environ.get("KAKAO_REST_API_KEY", ""))
     # 스냅샷을 실제로 쓰는 경우에만 "지금 모으기" 를 켠다. 플랫폼 소스를
     # 직접 쓰는 경우(--sources)는 이미 실시간이라 필요 없다.
-    auto_collect = AUTO_COLLECT_SOURCE if (use_snapshot or snapshot_only) else ""
+    auto_collect = AUTO_COLLECT_SOURCES if (use_snapshot or snapshot_only) else []
     return AppState(book, sources, router, geocoder,
-                    auto_collect_source=auto_collect)
+                    auto_collect_sources=auto_collect)
 
 
 def serve(state: AppState, host: str = "127.0.0.1", port: int = 8899):

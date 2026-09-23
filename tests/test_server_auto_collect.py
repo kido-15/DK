@@ -91,8 +91,8 @@ class TestAutoCollectOverHttp(unittest.TestCase):
             json.dump(cfg, f, ensure_ascii=False)
 
         # 이번 시험에서만 "webfake" 를 자동 수집 대상으로 쓴다.
-        self._orig_auto = server.AUTO_COLLECT_SOURCE
-        server.AUTO_COLLECT_SOURCE = "webfake"
+        self._orig_auto = server.AUTO_COLLECT_SOURCES
+        server.AUTO_COLLECT_SOURCES = ["webfake"]
 
         # jobs.start 가 이 설정 경로를 쓰도록, 실제 CollectJobManager 의
         # 기본 러너를 그대로 쓰되 config_path 를 넘겨야 한다 — 서버는
@@ -109,7 +109,7 @@ class TestAutoCollectOverHttp(unittest.TestCase):
         snap_src = SnapshotSource(path=os.path.join(self.snap_dir, "latest.json"),
                                   source_id="webfake")
         state = server.AppState(book, [snap_src], Router(providers=["estimate"]),
-                                Geocoder(), auto_collect_source="webfake")
+                                Geocoder(), auto_collect_sources=["webfake"])
 
         self.httpd = ThreadingHTTPServer(("127.0.0.1", 0),
                                          type("H", (server.Handler,), {"state": state}))
@@ -130,7 +130,7 @@ class TestAutoCollectOverHttp(unittest.TestCase):
     def tearDown(self):
         self.httpd.shutdown()
         self.httpd.server_close()
-        server.AUTO_COLLECT_SOURCE = self._orig_auto
+        server.AUTO_COLLECT_SOURCES = self._orig_auto
         collect.CONFIG_DIR = self._orig_config_dir
         collect.snapshot.SNAPSHOT_DIR = self._orig_snap_dir
 
@@ -139,15 +139,16 @@ class TestAutoCollectOverHttp(unittest.TestCase):
                     f"/api/search?origin=37.5,127.0&date={DAY.isoformat()}")
         self.assertEqual(resp["stats"]["fetched"], 0)
         self.assertIn("needs_collect", resp)
-        self.assertEqual(resp["needs_collect"]["date"], DAY.isoformat())
+        self.assertEqual(resp["needs_collect"], [{"source": "webfake", "date": DAY.isoformat()}])
 
     def test_start_then_status_then_search_succeeds(self):
-        started = _post(self.base, "/api/collect/start", {"date": DAY.isoformat()})
+        started = _post(self.base, "/api/collect/start",
+                        {"source": "webfake", "date": DAY.isoformat()})
         self.assertTrue(started["started"])
 
         status = None
         for _ in range(200):
-            status = _get(self.base, "/api/collect/status")
+            status = _get(self.base, "/api/collect/status?source=webfake")
             if status["status"] != "running":
                 break
             time.sleep(0.05)
@@ -160,20 +161,29 @@ class TestAutoCollectOverHttp(unittest.TestCase):
         self.assertNotIn("needs_collect", resp)
 
     def test_double_start_reports_already_running(self):
-        r1 = _post(self.base, "/api/collect/start", {"date": DAY.isoformat()})
+        r1 = _post(self.base, "/api/collect/start",
+                   {"source": "webfake", "date": DAY.isoformat()})
         self.assertTrue(r1["started"])
-        r2 = _post(self.base, "/api/collect/start", {"date": DAY.isoformat()})
+        r2 = _post(self.base, "/api/collect/start",
+                   {"source": "webfake", "date": DAY.isoformat()})
         self.assertFalse(r2["started"])
         self.assertTrue(r2["already_running"])
         # 정리: 끝날 때까지 기다려 스레드가 남지 않게 한다
         for _ in range(200):
-            if _get(self.base, "/api/collect/status")["status"] != "running":
+            if _get(self.base, "/api/collect/status?source=webfake")["status"] != "running":
                 break
             time.sleep(0.05)
 
     def test_invalid_date_is_rejected(self):
         with self.assertRaises(urllib.error.HTTPError) as ctx:
-            _post(self.base, "/api/collect/start", {"date": "이상한날짜"})
+            _post(self.base, "/api/collect/start",
+                 {"source": "webfake", "date": "이상한날짜"})
+        self.assertEqual(ctx.exception.code, 400)
+
+    def test_unknown_source_is_rejected(self):
+        with self.assertRaises(urllib.error.HTTPError) as ctx:
+            _post(self.base, "/api/collect/start",
+                 {"source": "존재안함", "date": DAY.isoformat()})
         self.assertEqual(ctx.exception.code, 400)
 
 
