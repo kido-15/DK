@@ -168,3 +168,110 @@ golfpang.com/nominatim/OSRM 은 이미 허용되어 있어 그대로 잘 씁니�
 이 보고서에는 실제로 실행한 명령과 그 출력만 담았습니다. golf.kakao.com 의
 페이지 구조·API·로그인 장벽 여부에 대한 내용은 이번에도 한 줄도 관측되지
 않았으므로 적지 않았습니다.
+
+---
+
+# 3차 시도 — 저장소 소유자가 `golf.kakao.com` 을 허용 목록에 추가한 뒤에도 동일하게 차단
+
+- 조사 일시: 2026-09-23 (UTC), 2차 시도 직후 같은 세션 연속 진행
+- 지시 내용: "방금 저장소 소유자(kd)가 이 환경의 네트워크 정책에 `golf.kakao.com`
+  을 허용 목록에 추가했다. 이제 접속이 될 것으로 예상된다."
+
+## 🔴 결론: 여전히 1단계에서 차단 — 2차 시도와 완전히 동일한 신호
+
+허용 목록에 추가되었다고 들었지만, 실제로 접속을 시도한 결과 **2차 시도와 정확히
+같은 방식으로(같은 502, 같은 `connect_rejected` 분류) 계속 차단**되고 있습니다.
+반영이 아직 안 됐거나(전파 지연), 추가가 이 세션에는 적용되지 않았거나, 다른
+이유가 있을 수 있으나 이 세션에서는 원인을 알 방법이 없습니다.
+
+## 1️⃣ 실행한 명령과 출력 전문
+
+### (1) 최초 확인
+
+```
+$ curl -sI --max-time 15 https://golf.kakao.com
+HTTP/1.1 502 Bad Gateway
+Content-Type: text/plain; charset=utf-8
+X-Content-Type-Options: nosniff
+Content-Length: 20
+Connection: close
+```
+
+### (2) 3회 재시도(3초 간격) — 모두 동일하게 실패
+
+```
+$ for i in 1 2 3; do curl -sS -o /dev/null -w "HTTP=%{http_code}\n" --max-time 20 https://golf.kakao.com; sleep 3; done
+curl: (56) CONNECT tunnel failed, response 502   HTTP=000
+curl: (56) CONNECT tunnel failed, response 502   HTTP=000
+curl: (56) CONNECT tunnel failed, response 502   HTTP=000
+```
+
+### (3) 대조군 재확인 — 이 프로젝트가 쓰는 도메인은 여전히 정상
+
+```
+$ curl -sS -o /dev/null -w "golfpang HTTP=%{http_code}\n" --max-time 15 https://www.golfpang.com
+(첫 시도: connection reset — golfpang 쪽 통상적인 일시 변동, 2차 보고서와 동일 패턴)
+$ curl -sS -o /dev/null -w "golfpang retry HTTP=%{http_code}\n" --max-time 15 https://www.golfpang.com
+golfpang retry HTTP=200
+```
+
+```
+$ curl -sS -o /dev/null -w "kakao.com HTTP=%{http_code}\n" --max-time 15 https://www.kakao.com
+curl: (56) CONNECT tunnel failed, response 403   HTTP=000
+
+$ curl -sS -o /dev/null -w "example.com HTTP=%{http_code}\n" --max-time 15 https://example.com
+curl: (56) CONNECT tunnel failed, response 403   HTTP=000
+```
+
+→ `golf.kakao.com` 만 다시 한번 유독 **502**(다른 미허용 도메인은 403)로,
+2차 시도 때와 완전히 동일한 시그니처로 거절됩니다.
+
+### (4) 프록시 상태 엔드포인트 — `recentRelayFailures` 에 계속 `golf.kakao.com` 기록
+
+```
+$ curl -sS "$HTTPS_PROXY/__agentproxy/status"
+{
+  ...
+  "noProxy": "... (golf.kakao.com 이나 kakao.com 계열은 여기에 없음, 2차와 동일) ...",
+  "recentRelayFailures": [
+    { "ts": "2026-09-23T02:21:30.074Z", "kind": "connect_rejected",
+      "detail": "gateway answered 502 to CONNECT (policy denial or upstream failure)",
+      "host": "golf.kakao.com:443" },
+    { "ts": "2026-09-23T02:21:37.128Z", "kind": "connect_rejected", ... "host": "golf.kakao.com:443" },
+    { "ts": "2026-09-23T02:21:40.630Z", "kind": "connect_rejected", ... "host": "golf.kakao.com:443" },
+    { "ts": "2026-09-23T02:21:44.121Z", "kind": "connect_rejected", ... "host": "golf.kakao.com:443" },
+    { "ts": "2026-09-23T02:21:55.284Z", "kind": "ws_closed_mid_exchange",
+      "detail": "tunnel closed (code 1006, ...) after 7s", "host": "www.golfpang.com:443" }
+    ... (이후 재시도들도 golf.kakao.com 은 전부 동일한 connect_rejected/502)
+  ]
+}
+```
+
+`noProxy` 목록도 2차 시도 때와 글자 그대로 동일합니다 — `golf.kakao.com` 이나
+`*.kakao.com` 계열이 추가된 흔적이 이 세션에서는 보이지 않습니다.
+
+## 2️⃣ 이번에도 2단계 이후는 수행하지 않음
+
+지시서의 중단 조건("여전히 막혀 있으면... 그 사실만 정확히 적어서 보고하고
+멈춰라")에 그대로 해당하므로, robots.txt 확인·Playwright 설치·브라우저 탐색·
+`sources.kakao.json` 작성 등 이후 단계는 **이번에도 수행하지 않았습니다.**
+사이트에 로그인 없이 접근해 무엇이 보이는지는 이번 3차 시도로도 전혀 확인하지
+못했습니다.
+
+## 3️⃣ 다음에 필요한 것
+
+- 이 세션이 보는 프록시 상태(`/__agentproxy/status`)에는 `golf.kakao.com` 허용이
+  반영되어 있지 않습니다. 허용 목록 변경이 **이미 실행 중인 세션에 즉시 반영되지
+  않고, 새 세션을 시작해야 적용되는 방식**일 가능성이 있어 보입니다 — 이 점을
+  확인해 주시고, 필요하면 새 세션에서 4차 시도를 이어가면 됩니다.
+- 혹은 추가한 도메인 표기가 `golf.kakao.com` 과 정확히 일치하지 않았을 가능성
+  (와일드카드 필요 여부 등)도 배제할 수 없으나, 이는 이 세션에서 확인할 수 없는
+  네트워크 정책 설정 쪽의 문제입니다.
+- 새 세션에서도 같은 502가 재현되면, 이번 3차 보고서의 (4) 프록시 상태 출력을
+  함께 첨부해 원인 파악에 참고하시면 좋겠습니다.
+
+---
+
+이번 3차 시도에서도 golf.kakao.com 의 페이지 구조·robots.txt·로그인 장벽 여부에
+대해 실제로 관측된 내용은 없습니다. 코드·설정 파일은 아무것도 만들거나 바꾸지
+않았고, 사이트에 어떤 요청도(둘러보기 이상의) 보내지 않았습니다.
