@@ -105,6 +105,7 @@ button:disabled { opacity: .6; cursor: progress; }
 }
 .results-head h2 { font-size: 1.12rem; margin: 0; }
 #result-count { color: var(--muted); font-weight: 400; font-size: .9rem; }
+.results-actions { display: flex; align-items: center; gap: 14px; }
 
 .stats {
   background: var(--panel); border: 1px solid var(--line); border-radius: 10px;

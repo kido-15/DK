@@ -233,7 +233,10 @@ document.querySelectorAll("#results thead th[data-key]").forEach((th) => {
     tableSort.dir = tableSort.key === key ? -tableSort.dir : 1;
     tableSort.key = key;
     updateSortHeaders();
-    renderTable(sortResults(currentResults, key, tableSort.dir, th.dataset.type));
+    // currentResults 자체를 지금 보이는 순서로 갱신한다 — CSV 다운로드도
+    // 이 배열을 그대로 쓰므로, 화면에서 정렬한 순서가 파일에도 반영된다.
+    currentResults = sortResults(currentResults, key, tableSort.dir, th.dataset.type);
+    renderTable(currentResults);
   });
 });
 
@@ -437,5 +440,39 @@ $("toggle-stats").addEventListener("click", () => {
   el.classList.toggle("hidden");
   $("toggle-stats").textContent = el.classList.contains("hidden") ? "진단 정보 보기" : "진단 정보 숨기기";
 });
+
+// -- CSV 다운로드 -------------------------------------------------------
+//
+// 서버가 외부 라이브러리 없이 표준 라이브러리만 쓰므로, xlsx를 서버에서
+// 만드는 대신 화면에 이미 있는 결과를 브라우저에서 바로 CSV로 내보낸다.
+// 엑셀·넘버스 모두 CSV를 더블클릭으로 그대로 연다.
+
+function toCsvField(v) {
+  const s = v == null ? "" : String(v);
+  return /[",\r\n]/.test(s) ? '"' + s.replace(/"/g, '""') + '"' : s;
+}
+
+function exportResultsCsv() {
+  if (!currentResults.length) return;
+  const headers = ["골프장", "주소", "날짜", "티오프", "그린피", "이동시간(분)", "거리(km)", "지역", "소스", "예약링크"];
+  const rows = currentResults.map((r) => [
+    r.display_name, r.address || "", r.play_date, r.tee_time,
+    r.green_fee >= 0 ? r.green_fee : "", r.drive_minutes ?? "", r.distance_km ?? "",
+    r.region || "", r.source, r.booking_url || "",
+  ]);
+  const csv = [headers, ...rows].map((row) => row.map(toCsvField).join(",")).join("\r\n");
+  // 엑셀이 UTF-8 CSV를 한글 깨짐 없이 열도록 BOM을 붙인다.
+  const blob = new Blob(["﻿" + csv], { type: "text/csv;charset=utf-8;" });
+  const url = URL.createObjectURL(blob);
+  const a = document.createElement("a");
+  a.href = url;
+  a.download = `골프검색결과_${new Date().toISOString().slice(0, 10)}.csv`;
+  document.body.appendChild(a);
+  a.click();
+  a.remove();
+  URL.revokeObjectURL(url);
+}
+
+$("export-csv").addEventListener("click", exportResultsCsv);
 
 loadMeta();
