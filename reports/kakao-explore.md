@@ -275,3 +275,170 @@ $ curl -sS "$HTTPS_PROXY/__agentproxy/status"
 이번 3차 시도에서도 golf.kakao.com 의 페이지 구조·robots.txt·로그인 장벽 여부에
 대해 실제로 관측된 내용은 없습니다. 코드·설정 파일은 아무것도 만들거나 바꾸지
 않았고, 사이트에 어떤 요청도(둘러보기 이상의) 보내지 않았습니다.
+
+---
+
+# 4차 시도 — 진짜 도메인은 `www.kakao.golf` (kakao.golf, golf.kakao.com 아님) — 여전히 차단, 이번엔 원인을 정확히 특정함
+
+- 조사 일시: 2026-09-23 (UTC)
+- 지시 내용: 1~3차가 `golf.kakao.com`(존재하지 않거나 무관한 주소)으로 잘못 시도했었고,
+  진짜 사이트는 `https://www.kakao.golf/` (도메인이 `kakao.golf`, `kakao.com`이 아님)라는
+  정정을 받음. 저장소 소유자가 이 세션 환경의 네트워크 정책에 `www.kakao.golf`
+  (및 가능하면 `*.kakao.golf`)를 허용 목록에 추가했다고 전달받음.
+
+## 🔴 결론: `www.kakao.golf` 는 여전히 프록시 단계에서 차단됨 — 그런데 이번엔 원인을 특정할 수 있었음
+
+**허용 목록에 추가된 것은 `www.kakao.golf` 가 아니라 최상위(apex) 도메인
+`kakao.golf`(www 없는 버전) 뿐으로 보입니다.** 그리고 하필 실제 서비스는
+`kakao.golf` 로 접속하면 **`https://www.kakao.golf/` 로 301 리다이렉트**되므로,
+정작 도달해야 하는 호스트(`www.kakao.golf`)는 여전히 막혀 있어 실질적으로
+사이트에 들어갈 수 없습니다. `web.kakao.golf`(검색 결과에 API 서브도메인으로
+언급되었던 것)도 마찬가지로 막혀 있습니다.
+
+## 1️⃣ 실행한 명령과 출력 전문
+
+### (1) 목표 주소 첫 확인 — `www.kakao.golf`
+
+```
+$ curl -sI --max-time 15 https://www.kakao.golf/
+HTTP/1.1 403 Forbidden
+Content-Type: text/plain; charset=utf-8
+X-Content-Type-Options: nosniff
+Content-Length: 72
+Connection: close
+```
+
+`-v` 로 상세히 보면 이 403은 **실제 사이트가 아니라 우리 세션의 에이전트 프록시가
+CONNECT 단계에서 직접 돌려주는 응답**입니다(사이트까지 TLS 터널이 열리기 전에
+프록시가 즉시 거절):
+
+```
+$ curl -sS -v --max-time 15 https://www.kakao.golf/
+* Establish HTTP proxy tunnel to www.kakao.golf:443
+> CONNECT www.kakao.golf:443 HTTP/1.1
+< HTTP/1.1 403 Forbidden
+< Content-Type: text/plain; charset=utf-8
+< X-Content-Type-Options: nosniff
+< Content-Length: 72
+< Connection: close
+* CONNECT tunnel failed, response 403
+```
+
+`/root/.ccr/README.md` 의 명시적 지침: "403 / 407 from the proxy: The destination
+host is not allowed by your organization's egress policy for this session. Do
+not retry or route around it — report the blocked host." 이 형식(작은
+`Content-Length`, `text/plain`, 프록시 자체 헤더)은 1~3차 조사에서 확인된
+egress 정책 거부와 동일한 시그니처입니다.
+
+### (2) 대조 확인 — 최상위 도메인 `kakao.golf` (www 없음) 는 허용되어 있었음
+
+```
+$ curl -sI --max-time 15 https://kakao.golf/
+HTTP/1.1 200 Connection Established
+
+HTTP/2 403
+server: CloudFront
+...
+```
+
+`200 Connection Established` 는 **프록시가 이 호스트로의 CONNECT 를 허용했다**는
+뜻입니다(www 와 정반대). 다만 UA 없이 보낸 최초 요청에는 CloudFront 가 자체적으로
+403(봇 차단으로 추정)을 돌려주었습니다. 브라우저 User-Agent 를 붙여 다시 요청하니:
+
+```
+$ curl -sS --max-time 15 \
+    -H "User-Agent: Mozilla/5.0 (Windows NT 10.0; Win64; x64) AppleWebKit/537.36 (KHTML, like Gecko) Chrome/120.0.0.0 Safari/537.36" \
+    -H "Accept: text/html,application/xhtml+xml" \
+    -D - https://kakao.golf/
+HTTP/1.1 200 Connection Established
+
+HTTP/2 301
+content-type: text/html
+location: https://www.kakao.golf/
+set-cookie: dtCookie=...; Path=/; Domain=.kakao.golf
+server: nginx
+via: 1.1 ...cloudfront.net (CloudFront)
+```
+
+→ **`kakao.golf` (bare) 는 실제로 살아있는 사이트이고, 정상적으로
+`https://www.kakao.golf/` 로 301 리다이렉트합니다.** 즉 지시서에서 알려준 진짜
+주소(`www.kakao.golf`)가 맞다는 것도 이번에 처음으로 실제 서버 응답으로
+확인됐습니다. 문제는 리다이렉트 목적지인 `www.kakao.golf` 자체가 막혀 있어
+그 다음 요청이 진행되지 못한다는 것입니다.
+
+### (3) `robots.txt` — bare 도메인에서도 CloudFront 자체 차단(비-UA 요청 한정)
+
+```
+$ curl -sS --max-time 15 https://kakao.golf/robots.txt
+(CloudFront 자체 403 HTML 오류 페이지: "Request blocked. We can't connect to
+the server for this app or website at this time...")
+```
+
+`www.kakao.golf` 가 막혀 있어 실제 `robots.txt` 내용(리다이렉트 목적지 기준)은
+받지 못했습니다.
+
+### (4) `web.kakao.golf` — 검색 결과에 언급된 API 서브도메인도 차단
+
+```
+$ curl -sI --max-time 15 https://web.kakao.golf/
+HTTP/1.1 403 Forbidden
+Content-Type: text/plain; charset=utf-8
+X-Content-Type-Options: nosniff
+Content-Length: 72
+Connection: close
+```
+
+`www.kakao.golf` 와 완전히 동일한 프록시 자체 거부 시그니처입니다.
+
+### (5) 프록시 상태 엔드포인트 — 세 호스트에 대해 명확히 다른 판정
+
+```
+$ curl -sS "$HTTPS_PROXY/__agentproxy/status"
+"recentRelayFailures": [
+  { "host": "www.kakao.golf:443", "kind": "connect_rejected",
+    "detail": "gateway answered 403 to CONNECT (policy denial or upstream failure)" },
+  { "host": "www.kakao.golf:443", "kind": "connect_rejected", ... },
+  { "host": "www.kakao.golf:443", "kind": "connect_rejected", ... },
+  { "host": "web.kakao.golf:443", "kind": "connect_rejected", ... }
+]
+```
+
+`kakao.golf`(bare, www 없음)에 대한 실패 기록은 전혀 없습니다 — 그 호스트는
+CONNECT 가 통과했기 때문입니다. `noProxy` 목록에도 카카오 계열 도메인은 여전히
+없습니다(이건 프록시 우회 목록이라 애초에 관계 없음 — 허용/차단 판단은
+`recentRelayFailures` 로 확인).
+
+## 2️⃣ 결론 요약 (저장소 소유자에게 필요한 조치)
+
+| 호스트 | 프록시 판정 | 비고 |
+|---|---|---|
+| `kakao.golf` (www 없음) | ✅ 허용됨 | 실제 사이트, `www.kakao.golf` 로 301 리다이렉트함 |
+| `www.kakao.golf` | 🔴 차단됨 (403, policy denial) | **실제 서비스가 있는 곳 — 여기가 열려야 함** |
+| `web.kakao.golf` | 🔴 차단됨 (403, policy denial) | 검색 결과상 API 서브도메인으로 추정되는 곳 |
+
+**허용 목록에 `www.kakao.golf` 를 추가하려던 시도가 실제로는 apex 도메인
+`kakao.golf` 만 등록된 것으로 보입니다.** `www` 서브도메인과 apex 도메인은 별도
+호스트로 취급되므로, 실제로 필요한 것은:
+- `www.kakao.golf` (필수 — 사이트 본체)
+- `web.kakao.golf` (검색 결과 기준 API 호출에 쓰일 가능성, 브라우저로 실제 접속해
+  봐야 확실히 알 수 있음)
+- 가능하면 지시서에서 요청한 대로 `*.kakao.golf` 와일드카드로 한 번에 커버하는 것을
+  권장합니다(다른 정적 자원/APi 서브도메인이 더 있을 수 있음).
+
+## 3️⃣ 이번에도 수행하지 않은 단계
+
+지시서의 중단 조건("여전히 막혀 있으면... 그 사실만 정확히 적어서 보고하고
+멈춰라")에 해당하므로, `robots.txt` 실제 내용 확인(리다이렉트 목적지 기준),
+Playwright 설치·브라우저 탐색, `explore.py` 실행, `sources.kakao.json` 작성,
+수집 테스트는 **이번에도 수행하지 않았습니다.** 로그인 장벽 여부는 이번에도
+전혀 확인하지 못했습니다(목록 화면 자체에 도달하지 못함). 로그인 시도나 자격증명
+요청은 하지 않았고, 사이트에 어떤 것도 제출하지 않았습니다. 코드는 만들지 않았고
+이 보고서 파일만 갱신했습니다.
+
+## 4️⃣ 다음에 필요한 것
+
+1. 이 세션(또는 다음 세션)의 원격 실행 환경 네트워크 정책에 `www.kakao.golf` 를
+   (그리고 가능하면 `*.kakao.golf` 와일드카드를) 정확히 추가.
+2. 추가 후 새 세션에서 5차 시도로 이어서 지시서 1단계(`curl -sI
+   https://www.kakao.golf/`)부터 다시 진행하면 됩니다. `kakao.golf`(bare)는
+   이미 열려 있으므로 그대로 두어도 무방합니다.
