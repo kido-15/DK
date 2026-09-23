@@ -148,6 +148,7 @@ function renderTable(results) {
     name.className = "course-name";
     name.innerHTML = (i < 3 ? `<span class="top-badge">TOP${i + 1}</span>` : "") +
       escapeHtml(r.display_name) +
+      (r.nine_hole ? `<span class="tag nine-hole-badge">9홀</span>` : "") +
       (r.address ? `<span class="addr">${escapeHtml(r.address)}</span>` : "");
     tr.appendChild(name);
 
@@ -460,9 +461,9 @@ function toCsvField(v) {
 
 function exportResultsCsv() {
   if (!currentResults.length) return;
-  const headers = ["골프장", "주소", "날짜", "티오프", "그린피", "이동시간(분)", "거리(km)", "지역", "소스", "예약링크"];
+  const headers = ["골프장", "9홀여부", "주소", "날짜", "티오프", "그린피", "이동시간(분)", "거리(km)", "지역", "소스", "예약링크"];
   const rows = currentResults.map((r) => [
-    r.display_name, r.address || "", r.play_date, r.tee_time,
+    r.display_name, r.nine_hole ? "9홀" : "", r.address || "", r.play_date, r.tee_time,
     r.green_fee >= 0 ? r.green_fee : "", r.drive_minutes ?? "", r.distance_km ?? "",
     r.region || "", r.source, r.booking_url || "",
   ]);

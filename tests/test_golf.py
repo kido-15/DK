@@ -295,6 +295,15 @@ class TestSearch(unittest.TestCase):
         names = [r.tee_time.course_name for r in res]
         self.assertIn("남서울CC", names)
 
+    def test_nine_hole_flag_shown_in_dict(self):
+        """화면에 9홀 표시를 붙일 수 있게, DB·이름 표기 어느 쪽으로 판정됐든
+        결과 dict에 nine_hole이 그대로 드러나야 한다."""
+        res, _ = self.engine.search(self._q())
+        by_name = {r.tee_time.course_name: r.to_dict()["nine_hole"] for r in res}
+        self.assertTrue(by_name["스프링베일-퍼9"])
+        self.assertTrue(by_name["빅토리아-퍼9"])
+        self.assertFalse(by_name["남서울CC"])
+
 
 class TestRouting(unittest.TestCase):
     def test_estimate_always_succeeds(self):

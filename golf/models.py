@@ -276,6 +276,23 @@ class TeeTime:
     def matched(self) -> bool:
         return self.course is not None
 
+    @property
+    def is_nine_hole(self) -> bool:
+        """9홀을 두 바퀴 돌아 채우는 코스인지.
+
+        실제 홀 수(DB의 Course.holes)가 있으면 그걸 우선 믿는다. 없으면
+        예약 사이트 표기("-퍼9")나 hole_info로 판단한다 — golfpang 같은
+        곳은 9홀 코스를 두 바퀴 돌아도 hole_info를 "18홀"로 주는 일이
+        많아, 이름 표기가 더 믿을 만할 때가 있다.
+
+        golf.search의 exclude_nine_holes 필터와 화면 표시(9홀 배지)가
+        이 값을 함께 쓴다 — 필터링과 화면 표시가 서로 다른 기준으로
+        어긋나면 안 되기 때문이다.
+        """
+        if self.course and self.course.holes == 9:
+            return True
+        return has_nine_hole_tag(self.course_name) or has_nine_hole_tag(self.hole_info)
+
     def to_dict(self) -> dict[str, Any]:
         return {
             "course_name": self.course_name,
@@ -287,6 +304,7 @@ class TeeTime:
             "booking_url": self.booking_url,
             "slots": self.slots,
             "hole_info": self.hole_info,
+            "nine_hole": self.is_nine_hole,
         }
 
 

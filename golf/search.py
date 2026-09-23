@@ -17,7 +17,7 @@ from typing import Any, Optional
 
 from .courses import CourseBook
 from .geo import haversine_km
-from .models import SearchQuery, SearchResult, TeeTime, has_nine_hole_tag
+from .models import SearchQuery, SearchResult, TeeTime
 from .routing import Router
 
 # 4단계 프리필터에서 쓰는 가정 최고 평균속도(km/h).
@@ -185,7 +185,7 @@ class GolfSearch:
             region = t.course.region if t.course else ""
             if not any(r in region for r in q.regions if r):
                 return False
-        if q.exclude_nine_holes and _is_nine_hole(t):
+        if q.exclude_nine_holes and t.is_nine_hole:
             return False
         # 이동시간 조건이 있는데 좌표를 모르면 판단할 수 없으므로 제외한다.
         if q.max_drive_minutes and not t.matched:
@@ -254,14 +254,6 @@ class GolfSearch:
         if how == "tee_time":
             return sorted(results, key=lambda r: (r.tee_time.play_date, r.tee_time.tee_time))
         return sorted(results, key=lambda r: r.score, reverse=True)
-
-
-def _is_nine_hole(t: TeeTime) -> bool:
-    """9홀을 두 바퀴 돌아 채우는 코스인지. 실제 홀 수(DB)가 우선이고,
-    모르면 예약 사이트 표기("-퍼9")나 hole_info로 판단한다."""
-    if t.course and t.course.holes == 9:
-        return True
-    return has_nine_hole_tag(t.course_name) or has_nine_hole_tag(t.hole_info)
 
 
 def _to_min(t: time) -> float:
