@@ -30,6 +30,16 @@
       }
     }
 
+split 을 쓸 때, 응답 자체에는 이름이 없고 나눈 기준(코드)에만 이름이 있는
+사이트가 있다 (예: 골프장 고유번호로만 되는 상세 API, 이름은 별도 목록에만
+있음). split.labels 에 그 이름을 적어 두면 from_request: "split_label" 로
+꺼내 쓸 수 있다:
+
+      "split": {"field": "golfInfoSeq", "values": ["12", "13"],
+               "labels": {"12": "화성GC", "13": "포천힐스"}},
+      ...
+      "fields": {"course_name": {"from_request": "split_label"}, ...}
+
 페이지 넘기기 (전량 수집):
   pages.max              날짜당 최대 페이지 수
   pages.stop_when_empty  빈 페이지가 나오면 멈춘다 (기본 true)
@@ -309,10 +319,19 @@ class WebSource:
         origin = f"{parts.scheme}://{parts.netloc}"
         rp = self._robots.get(origin)
         if rp is None:
+            robots_url = urllib.parse.urljoin(origin, "/robots.txt")
             rp = urllib.robotparser.RobotFileParser()
-            rp.set_url(urllib.parse.urljoin(origin, "/robots.txt"))
+            rp.set_url(robots_url)
             try:
-                rp.read()
+                # RobotFileParser.read() 는 UA 를 안 붙여 보낸다. 일부 사이트는
+                # (CloudFront 뒤에 있는 곳 등) UA 없는 요청을 봇으로 보고 403을
+                # 돌려주는데, 그러면 read() 가 "다 막힘"으로 잘못 해석한다.
+                # 실제로는 robots.txt 자체가 열려 있고 내용도 허용인데도 그렇다.
+                req = urllib.request.Request(
+                    robots_url, headers={"User-Agent": DEFAULT_UA})
+                with urllib.request.urlopen(req, timeout=10) as resp:
+                    raw = resp.read()
+                rp.parse(_decode(raw, resp.headers).splitlines())
             except Exception:
                 # robots.txt를 못 읽으면 막지 않는다 (없는 사이트가 많다)
                 rp = None
@@ -420,7 +439,8 @@ class WebSource:
                             f"{d}: 요청 상한 {max_requests}회에 걸려 멈췄습니다")
                         hit_cap = True
                         break
-                    context = {"date": d, "page": page, "split": bucket}
+                    context = {"date": d, "page": page, "split": bucket,
+                              "split_label": label}
                     url = self._render(url_tpl, context)
 
                     if not self._robots_allows(url):
