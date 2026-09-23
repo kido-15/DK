@@ -442,3 +442,149 @@ Playwright 설치·브라우저 탐색, `explore.py` 실행, `sources.kakao.json
 2. 추가 후 새 세션에서 5차 시도로 이어서 지시서 1단계(`curl -sI
    https://www.kakao.golf/`)부터 다시 진행하면 됩니다. `kakao.golf`(bare)는
    이미 열려 있으므로 그대로 두어도 무방합니다.
+
+---
+
+# 5차 시도 — 성공. `www.kakao.golf` 허용 목록 반영 확인, 로그인 없이 개별 티타임까지 수집
+
+- 조사 일시: 2026-09-23 (UTC)
+- 지시 내용: 저장소 소유자가 `www.kakao.golf` 를 허용 목록에 추가함. 이번이 5차 시도.
+
+## 🟢 결론: 로그인 없이 개별 티타임(시각·그린피)까지 수집하는 데 성공. `config/sources.kakao.json` 작성·커밋 완료.
+
+### 1️⃣ 접속 확인
+
+```
+$ curl -sI --max-time 15 https://www.kakao.golf/
+HTTP/1.1 200 Connection Established
+HTTP/2 403          ← 이건 프록시가 아니라 CloudFront 가 UA 없는 요청을 막은 것
+```
+
+`-v` 로 보면 `CONNECT` 자체는 `200 Connection Established` 로 통과했습니다
+(4차 때는 이 단계에서 `403 policy denial` 로 막혔음). 브라우저 UA를 붙이면:
+
+```
+$ curl -H "User-Agent: Mozilla/5.0 ... Chrome/120.0.0.0 Safari/537.36" https://www.kakao.golf/
+HTTP/2 200   (69KB, 실제 페이지)
+```
+
+허용 목록 반영이 확인되었습니다. `robots.txt` 도 정상적으로 받아졌습니다:
+
+```
+Allow: /
+Allow: /golf/
+Allow: /tee-time/
+Allow: /join
+Disallow: /my/          (로그인 필요)
+Disallow: /payment/
+Disallow: /reservation/  (실제 예약 처리, 로그인 필요)
+Disallow: /join/
+Disallow: /cc/
+Disallow: /auth/identity
+Sitemap: https://www.kakao.golf/sitemap.xml
+```
+
+`/tee-time/` 과 `/golf/` 는 명시적으로 허용, 로그인이 필요한 부분(`/my/`,
+`/payment/`, `/reservation/`)만 차단 — 지시서의 "로그인이 필요하면 멈춘다"
+조건에 해당하지 않았습니다 (로그인 벽 자체가 없었음).
+
+### 2️⃣ 로그인 없이 확인한 것 — Playwright 로 실제 화면까지 열어 봄
+
+`pip3 install playwright` (모듈만, `playwright install` 은 안 함 — Chromium 은
+`/opt/pw-browsers/chromium-1194/`에 이미 있음). 헤드리스 Chromium 으로
+`https://www.kakao.golf/tee-time?area=1` 을 열어 렌더링된 화면 텍스트를 확인:
+
+```
+BODY_TEXT_SNIPPET: 예약가능 골프장만 보기 / 조건 초기화 / 적용하기
+LOGIN_HINT: False
+```
+
+로그인을 요구하는 화면은 전혀 없었습니다. (참고: 이 사이트는 Nuxt SSR
+앱이라 헤드리스 Chromium 이 이 프록시 환경에서 CSS/폰트/이미지 요청을
+과도하게 병렬로 열면 `ERR_TOO_MANY_RETRIES` 로 간헐적으로 실패했습니다.
+스타일시트/폰트/이미지 리소스 타입을 route 로 막고 JS/문서만 통과시키니
+안정적으로 렌더링됨 — 세션 환경 특성이라 프로젝트 코드에는 반영하지
+않았습니다.)
+
+### 3️⃣ 구조 파악 — 화면은 골프장별 "요약"만, 실제 티타임은 API 두 단계
+
+- `https://www.kakao.golf/tee-time?area=1` (지역별 목록) 은 서버사이드
+  렌더링된 `<script id="__NUXT_DATA__">` 안에 골프장 102곳의 **요약**
+  (최저 그린피, 남은 타임 "개수")만 담고 있었습니다. 실제 개별 시각은
+  없었습니다. (`__NUXT_DATA__` 는 Nuxt 고유의 참조-인덱스 배열 포맷이라
+  `python3` 로 직접 디코더를 짜서 읽었습니다 — `scripts/explore.py` 의
+  일반 JSON 배열 탐지로는 못 읽는 형태였습니다.)
+- 화면에서 골프장 카드를 누르면 뜨는 실제 개별 티타임 목록은 별도 API
+  호출입니다. 사이트가 내려주는 JS 청크(80개)를 받아 `grep` 으로
+  `/api/` 문자열을 찾아 알아냈습니다:
+    - `POST /api/tee-time/search` — 지역 요약 (화면과 같은 데이터)
+    - `POST /api/golf/booktime` — **골프장 하나(`golfInfoSeq`)의 개별
+      티타임 전부** (시각, 그린피, 홀수, 예약 방식 등)
+- `POST /api/golf/booktime` 을 로그인 세션(쿠키) 없이 그대로 호출해 실제
+  검증:
+
+  ```
+  $ curl -X POST https://www.kakao.golf/api/golf/booktime \
+      -H "Content-Type: application/json" \
+      -d '{"golfInfoSeq":12,"date":"20260924","sigunguSeq":459,"weekType":0}'
+  → HTTP 200, {"list":[{"CourseName":"오크힐","bookTime":"0625","greenFeeDC":115000,...}, ...]}
+  ```
+
+  로그인 없이 비회원 기준 그린피가 그대로 옵니다. 값 타입도 관용적이라
+  문자열("12", "459", "0")로 보내도 그대로 받아들입니다.
+- 이 API는 `golfInfoSeq` 가 없으면 400 에러를 돌려줘 지역 전체를 한
+  번에 받는 길은 없었습니다. 그래서 사이트가 쓰는 전체 골프장 목록
+  (같은 `__NUXT_DATA__` 안의 전역 `names` 배열, 665곳, 전 지역 공통)을
+  구해 골프장 고유번호 하나씩 순서대로 부르는 방식을 썼습니다
+  ("체력단련장" 22곳은 제외해 643곳).
+- 응답의 `CourseName` 은 그 골프장 **안의 세부 코스 이름**(예:
+  골프장 12번 안의 "오크힐"/"버치힐")이라 좌표 DB의 골프장명과 다릅니다.
+  그래서 `course_name` 은 응답이 아니라 golfInfoSeq → 진짜 골프장명
+  매핑(위 `names` 배열)에서 가져오도록 했습니다 — 기존 프레임워크
+  (`golf/sources/web_source.py`)에 `split.labels` 값을
+  `from_request: "split_label"` 로 꺼내 쓰는 기능이 없어서, 그 부분만
+  한 줄 추가했습니다(다른 사이트 설정에도 쓸 수 있는 일반적인 기능).
+
+### 4️⃣ 코드에서 드러난 사소한 버그 하나도 고침
+
+`_robots_allows()` 가 `robots.txt` 를 받을 때 UA를 안 붙여서, CloudFront
+뒤에 있는 사이트(kakao.golf 포함)가 UA 없는 요청을 봇으로 보고 403을
+돌려주면 `robotparser` 가 "robots.txt 전체가 차단"으로 잘못 해석하고
+있었습니다. 실제로는 `/tee-time/`·`/golf/`·해당 API 경로 모두 허용인데도
+그렇게 나왔습니다. `robots.txt` 요청에 브라우저 UA를 붙이도록 고쳤습니다
+(다른 사이트에도 적용되는 일반적인 수정입니다).
+
+### 5️⃣ `config/sources.kakao.json` 작성 및 실제 수집 검증
+
+- `--dry-run` (1개 골프장, 오늘 날짜) → robots 통과 확인.
+- 직접 `WebSource` 로 알려진 골프장(12번, 내일 날짜)을 호출 → 16건 정상
+  추출 확인 (시각·그린피·홀수 정확).
+- 실전 1일치 전체 수집(`scripts/collect_full.py kakao --days 1`, 643개
+  골프장 순회, 딜레이 1.5초, 약 24분 소요): **352건, 골프장 51곳.**
+- `scripts/check_coverage.py`: **85.2%** (300/352건) 가 좌표 DB와 바로
+  매칭. 4종은 이름이 많이 달라 보이지만 실제로는 맞는 매칭이었습니다
+  (예: "동강시스타컨트리클럽" → "탑스텐리조트 동강시스타CC"). 못 찾은
+  8종(52건, 14.8%)은 패턴이 뚜렷합니다 — **대부분 파3/9홀 소형 코스**
+  ("...(P9)", "...파3" 표기)로, OpenStreetMap 좌표 DB 자체에 이런 소형
+  시설이 별로 없는 경우로 보입니다. 이름 표기 문제가 아니라 좌표 DB의
+  포함 범위 문제라 판단해 `golf/models.py` 는 건드리지 않았습니다
+  (지시서의 "무리해서 다 고치려 하지 말 것"에 해당).
+- 전체 테스트: `python3 -m unittest discover -s tests` — 248개 전부
+  통과.
+
+### 6️⃣ 커밋
+
+`claude/stoic-heisenberg-cfuysm` 브랜치에 커밋·푸시했습니다 (PR 은 만들지
+않음):
+- `config/sources.kakao.json` (신규)
+- `golf/sources/web_source.py` (`split_label` from_request 지원 추가,
+  robots.txt UA 버그 수정)
+
+### 7️⃣ 참고 — 프로젝트 문서 중 갱신이 필요해 보이는 부분 (이번엔 손대지 않음)
+
+`GOLF_README.md`와 `scripts/setup_sites.py`/`scripts/login.py` 는 카카오골프
+예약 주소를 `golf.kakao.com`(존재하지 않는 도메인)으로, 또 "날짜를 눌러야
+하는 브라우저 자동화 대상"으로 적고 있습니다. 실제로는 도메인이
+`www.kakao.golf` 이고, 로그인도 브라우저 자동화도 필요 없이
+`config/sources.kakao.json` 하나로 바로 수집됩니다. 지시서 범위를 벗어나
+이번에는 고치지 않았지만, 다음에 문서를 정리할 때 참고할 만합니다.
