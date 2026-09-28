@@ -11,6 +11,8 @@ from dataclasses import dataclass, field, asdict
 from datetime import date, datetime, time
 from typing import Any, Optional
 
+from .geo import PLACE_NAMES
+
 
 # ---------------------------------------------------------------------------
 # 골프장 (마스터 데이터)
@@ -161,12 +163,24 @@ _REGION_HINT = re.compile(r"[(\[]\s*([가-힣]{2,4})\s*[)\]]")
 
 
 def region_hint(raw: str) -> str:
-    """이름 괄호 안의 지역 표시. 없으면 빈 문자열."""
+    """이름의 지역 표시. 괄호 안이든, 뒤에 그냥 붙는 말이든 찾아낸다.
+
+    예약 사이트 중에는 괄호 없이 이름 뒤에 지역명만 덧붙이는 곳도 있다
+    ("해비치컨트리클럽 제주", "LPGA 인터내셔널 부산", "롯데스카이힐 성주").
+    괄호 안만 보면 이런 이름은 지역 표시가 없는 것으로 보여, 포함 관계
+    매칭에서 전혀 다른 지역의 동명 골프장에 그대로 붙는다 — 제주 골프장이
+    경기도 좌표를 갖는 식이다. 그래서 마지막 낱말이 실제 지명(PLACE_NAMES)일
+    때는 괄호가 없어도 지역 표시로 본다. 지명이 아닌 낱말(코스 이름 등)까지
+    지역으로 오인하지 않도록, 실제 지명 목록에 있을 때만 인정한다.
+    """
     for m in _REGION_HINT.finditer(raw or ""):
         token = m.group(1)
         if _BOOKING_QUALIFIERS.fullmatch(token) or token.startswith("구."):
             continue                      # 판매 조건이지 지역이 아니다
         return token
+    parts = (raw or "").strip().split()
+    if len(parts) >= 2 and parts[-1] in PLACE_NAMES:
+        return parts[-1]
     return ""
 
 

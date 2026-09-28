@@ -196,6 +196,39 @@ class TestRegionHint(unittest.TestCase):
         ])
         self.assertEqual(b.match("그랜드(청주)").course_id, "cj")
 
+    def test_bare_region_suffix_without_parens_is_refused(self):
+        """일부 사이트는 괄호 없이 이름 뒤에 지역명만 덧붙인다.
+
+        "해비치컨트리클럽 제주" 를 경기 "해비치CC" 에 붙이면 제주 골프장이
+        경기 좌표를 갖게 된다 — 실제로 있었던 사고다. 괄호가 없다고 지역
+        표시를 놓치면 안 된다.
+        """
+        b = CourseBook([
+            Course(course_id="habichi-gg", name="해비치CC", lat=37.6, lon=127.3,
+                   region="경기", address="경기 남양주시"),
+        ])
+        self.assertIsNone(b.match("해비치컨트리클럽 제주"))
+
+    def test_bare_region_suffix_still_matches_right_course(self):
+        b = CourseBook([
+            Course(course_id="habichi-jj", name="해비치컨트리클럽 제주",
+                   lat=33.25, lon=126.5, region="제주", address="제주 서귀포시"),
+            Course(course_id="habichi-gg", name="해비치CC", lat=37.6, lon=127.3,
+                   region="경기", address="경기 남양주시"),
+        ])
+        self.assertEqual(
+            b.match("해비치컨트리클럽 제주").course_id, "habichi-jj")
+
+    def test_trailing_word_that_is_not_a_place_name_is_not_a_region(self):
+        """뒤에 붙는 말이 실제 지명이 아니면 지역 표시로 보면 안 된다."""
+        b = CourseBook([
+            Course(course_id="powell", name="포웰CC", lat=35.3, lon=128.4,
+                   region="경남", address="경남 양산시"),
+        ])
+        # "리조트"는 PLACE_NAMES에 없으므로 지역 표시가 아니다 — 포함
+        # 관계로는 여전히 붙을 수 있어야 한다.
+        self.assertEqual(b.match("포웰CC 리조트").course_id, "powell")
+
 
 class TestParenPrefixIsIndexed(unittest.TestCase):
     """지도 데이터는 괄호에 영문명을 같이 적어 둔다.
