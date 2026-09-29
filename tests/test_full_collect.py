@@ -12,6 +12,7 @@ from __future__ import annotations
 import json
 import os
 import sys
+import time
 import unittest
 from datetime import date
 
@@ -273,6 +274,79 @@ class TestSplitCollection(unittest.TestCase):
         ids = [t.raw["row_id"] for t in rows]
         self.assertEqual(len(ids), len(set(ids)),
                          "같은 매물이 두 묶음에서 각각 저장됐다")
+
+
+class TestConcurrentBuckets(unittest.TestCase):
+    """묶음(bucket)을 동시에 받아 전체 수집 시간을 줄이는 기능.
+
+    카카오골프예약처럼 골프장 하나당 요청 한 번씩 나뉘어(묶음이 수백 개)
+    받는 소스는, 순서대로 돌면 delay_seconds 대기가 그대로 쌓여 전체가 몇
+    배로 느려진다(실제로 643개 묶음 × 1.5초 = 16분). request.max_concurrency
+    를 주면 서로 독립된 묶음들을 동시에 돌린다.
+    """
+
+    @classmethod
+    def setUpClass(cls):
+        cls.srv, cls.base = start()
+
+    @classmethod
+    def tearDownClass(cls):
+        cls.srv.shutdown()
+
+    def test_default_is_still_sequential_and_correct(self):
+        """max_concurrency 를 안 주면 기존과 똑같이 동작해야 한다(하위 호환)."""
+        cfg = config_for(self.base, "/list",
+                         split={"field": "sector", "values": ["a", "b", "c"]})
+        self.assertNotIn("max_concurrency", cfg["request"])
+        rows = WebSource(cfg).fetch([DAY])
+        self.assertEqual(len(rows), TOTAL)  # 3묶음이 같은 목록을 보지만 중복은 걸러진다
+
+    def test_dedupe_holds_with_many_concurrent_buckets(self):
+        """묶음 8개를 동시에 돌려도 겹치는 매물은 여전히 정확히 걸러져야 한다.
+
+        모든 묶음이 완전히 같은 목록(/list)을 본다 — 그래서 최종적으로는
+        딱 한 벌(TOTAL건)만 남고 나머지는 전부 중복으로 잡혀야 정상이다.
+        중복 걸러내기(seen_rows)를 스레드 간에 잠그지 않으면, 두 스레드가
+        동시에 같은 매물번호를 "아직 못 봤다"고 판단해 중복이 새 나간다.
+        """
+        buckets = [f"b{i}" for i in range(8)]
+        cfg = config_for(self.base, "/list",
+                         split={"field": "sector", "values": buckets},
+                         max_concurrency=8)
+        src = WebSource(cfg)
+        rows = src.fetch([DAY])
+        ids = [t.raw["row_id"] for t in rows]
+        self.assertEqual(len(ids), len(set(ids)), "같은 매물이 두 번 저장됐다")
+        self.assertEqual(len(rows), TOTAL,
+                         "묶음이 몇 개든 실제 매물은 TOTAL건뿐이어야 한다")
+        self.assertEqual(src.last_stats["duplicates"], TOTAL * (len(buckets) - 1))
+
+    def test_split_buckets_are_recorded_regardless_of_concurrency(self):
+        cfg = config_for(self.base, "/list",
+                         split={"field": "sector", "values": ["A", "B", "C"]},
+                         max_concurrency=3)
+        src = WebSource(cfg)
+        src.fetch([DAY])
+        self.assertEqual(src.last_stats["buckets"], ["A", "B", "C"])
+
+    def test_concurrency_actually_speeds_up_collection(self):
+        """실제로 더 빨라야 의미가 있다 — 걸린 시간을 재서 비교한다."""
+        buckets = ["a", "b", "c"]
+
+        def _timed(max_concurrency):
+            cfg = config_for(self.base, "/list",
+                             split={"field": "sector", "values": buckets},
+                             delay_seconds=0.3, max_concurrency=max_concurrency)
+            started = time.monotonic()
+            WebSource(cfg).fetch([DAY])
+            return time.monotonic() - started
+
+        sequential = _timed(1)
+        concurrent = _timed(3)
+        self.assertLess(
+            concurrent, sequential * 0.6,
+            f"동시에 돌려도 별로 안 빨라졌다 (순서대로 {sequential:.2f}s / "
+            f"동시에 {concurrent:.2f}s)")
 
 
 class TestCsvKeepsRowId(unittest.TestCase):
