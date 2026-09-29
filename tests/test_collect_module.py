@@ -185,6 +185,16 @@ class TestNeedsCollect(unittest.TestCase):
             json.dump({"faky3": [DAY.isoformat()]}, f)
         self.assertTrue(collect.needs_collect("faky3", DAY, directory=self.tmp))
 
+    def test_old_list_format_reports_unknown_time_not_epoch_zero(self):
+        """예전 형식은 마지막으로 모은 시각을 모른다 — 1970년(epoch 0)을 실제
+        시각인 척 돌려주면 화면에 "497407시간 전 모음" 같은 말이 안 되는
+        값이 나간다(실제로 kd님이 이 화면을 보고 신고했다). None 이어야
+        화면이 "아직 모아 본 적 없음" 으로 정직하게 보여 준다."""
+        attempted_path = os.path.join(self.tmp, "attempted.json")
+        with open(attempted_path, "w", encoding="utf-8") as f:
+            json.dump({"faky3": [DAY.isoformat()]}, f)
+        self.assertIsNone(collect.attempted_at("faky3", DAY, directory=self.tmp))
+
 
 class TestEndToEndAgainstFakeSite(unittest.TestCase):
     """실제 build_source → WebSource.fetch → merge_into_snapshot 흐름."""

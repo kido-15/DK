@@ -179,18 +179,19 @@ def mark_attempted(source_id: str, play_date, *,
 
 def attempted_at(source_id: str, play_date, *,
                  directory: Optional[str] = None) -> Optional[float]:
-    """그 날짜를 마지막으로 모아 본 시각(epoch 초). 모아 본 적 없으면 None.
+    """그 날짜를 마지막으로 모아 본 시각(epoch 초). 모아 본 적 없거나 시각을
+    모르면 None.
 
-    예전 형식(시각 없이 날짜 목록만 있던 버전)과 호환한다 — 시각이 없는
-    기록은 아주 오래전(0)으로 봐서, 자연스럽게 "다시 모을까요?" 로 넘어가게
-    한다.
+    예전 형식(시각 없이 날짜 목록만 있던 버전)과 호환한다 — 시각을 모르는
+    기록은 **1970년(0)처럼 실제 시각인 척하지 않고** None 을 돌려준다.
+    화면에 "497407시간 전 모음" 같은 말도 안 되는 값이 나가는 걸 막기
+    위해서다. needs_collect() 는 None 도 "한 번도 안 모음" 과 똑같이
+    다시 모으자고 권하므로, 다시 권하는 동작 자체는 그대로 유지된다.
     """
     data = _load_attempted(directory)
     per_source = data.get(source_id)
     if isinstance(per_source, dict):
         return per_source.get(play_date.isoformat())
-    if isinstance(per_source, list) and play_date.isoformat() in per_source:
-        return 0.0
     return None
 
 

@@ -209,6 +209,21 @@ class TestAutoCollectOverHttp(unittest.TestCase):
         entry = next(n for n in resp["needs_collect"] if n["source"] == "webfake")
         self.assertAlmostEqual(entry["last_collected_at"], old_ts, delta=1)
 
+    def test_old_format_attempted_file_does_not_leak_epoch_zero(self):
+        """staleness 기능을 넣기 전(예전 버전)에 만들어진 attempted.json 을
+        그대로 들고 있는 사용자가 검색하면, 화면에 "497407시간 전 모음" 같은
+        말이 안 되는 값이 나가면 안 된다 — 실제로 kd님이 이 화면을 보고
+        신고했다. 시각을 모르면 last_collected_at 은 null 이어야 한다."""
+        os.makedirs(self.snap_dir, exist_ok=True)
+        attempted_path = os.path.join(self.snap_dir, "attempted.json")
+        with open(attempted_path, "w", encoding="utf-8") as f:
+            json.dump({"webfake": [DAY.isoformat()]}, f)  # 예전 형식(날짜 목록)
+
+        resp = _get(self.base,
+                    f"/api/search?origin=37.5,127.0&date={DAY.isoformat()}")
+        entry = next(n for n in resp["needs_collect"] if n["source"] == "webfake")
+        self.assertIsNone(entry["last_collected_at"])
+
     def test_double_start_reports_already_running(self):
         r1 = _post(self.base, "/api/collect/start",
                    {"source": "webfake", "date": DAY.isoformat()})
