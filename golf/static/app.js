@@ -334,6 +334,17 @@ $("search-form").addEventListener("submit", (e) => {
 const SOURCE_LABELS = { golfpang: "골팡", kakao: "카카오골프예약" };
 const sourceLabel = (id) => SOURCE_LABELS[id] || id;
 
+// 티타임은 실시간으로 열리고 닫혀서, 오래전에 모은 결과를 계속 최신인 것처럼
+// 보여주면 안 된다(golf/collect.py의 STALE_AFTER_SECONDS 참고). 언제 모았는지
+// 눈에 보이게 해서, 다시 모을지 kd님이 판단할 수 있게 한다.
+function formatCollectedAgo(epochSeconds) {
+  if (epochSeconds == null) return "아직 모아 본 적 없음";
+  const minutes = Math.floor(Math.max(0, Date.now() / 1000 - epochSeconds) / 60);
+  if (minutes < 1) return "방금 모음";
+  if (minutes < 60) return `${minutes}분 전 모음`;
+  return `${Math.floor(minutes / 60)}시간 전 모음`;
+}
+
 function renderCollectBanner(needsCollect) {
   const box = $("collect-banner");
   if (!needsCollect || !needsCollect.length) {
@@ -342,8 +353,11 @@ function renderCollectBanner(needsCollect) {
     return;
   }
   const names = needsCollect.map((n) => sourceLabel(n.source)).join(" · ");
+  const lines = needsCollect
+    .map((n) => `${escapeHtml(sourceLabel(n.source))}: ${formatCollectedAgo(n.last_collected_at)}`)
+    .join(" · ");
   box.innerHTML =
-    `<p>아직 모아 본 적 없는 소스가 있습니다: ${escapeHtml(names)}</p>` +
+    `<p>${lines}</p>` +
     `<button type="button" id="collect-now-btn">지금 모으기 (${escapeHtml(names)})</button>` +
     `<div id="collect-progress" class="collect-progress hidden"></div>`;
   box.classList.remove("hidden");

@@ -11,6 +11,7 @@ import json
 import os
 import sys
 import tempfile
+import time
 import unittest
 from datetime import date
 
@@ -153,6 +154,36 @@ class TestNeedsCollect(unittest.TestCase):
         collect.merge_into_snapshot("faky3", rows, [DAY], directory=self.tmp)
         self.assertTrue(collect.needs_collect(
             "faky3", date(2026, 9, 20), directory=self.tmp))
+
+    def test_true_again_once_stale(self):
+        """티타임은 실시간으로 바뀌므로, 모아 온 지 오래되면 결과가 있어도
+        다시 권해야 한다."""
+        rows = [TeeTime(course_name="가나CC", play_date=DAY,
+                        tee_time=parse_time("08:00"), green_fee=90000,
+                        source="faky3")]
+        collect.merge_into_snapshot("faky3", rows, [DAY], directory=self.tmp)
+        just_after = time.time()
+        self.assertFalse(collect.needs_collect(
+            "faky3", DAY, directory=self.tmp, now=just_after))
+
+        long_after = just_after + collect.STALE_AFTER_SECONDS + 1
+        self.assertTrue(collect.needs_collect(
+            "faky3", DAY, directory=self.tmp, now=long_after))
+
+    def test_stale_threshold_applies_to_empty_result_too(self):
+        """진짜 0건으로 확인된 날도, 오래되면 새로 열렸을 수 있으니 다시 권한다."""
+        collect.merge_into_snapshot("faky3", [], [DAY], directory=self.tmp)
+        long_after = time.time() + collect.STALE_AFTER_SECONDS + 1
+        self.assertTrue(collect.needs_collect(
+            "faky3", DAY, directory=self.tmp, now=long_after))
+
+    def test_old_list_format_is_treated_as_stale(self):
+        """시각 없이 날짜 목록만 있던 예전 형식의 기록은, 시각을 모르니
+        아주 오래전으로 보고 다시 권한다(마이그레이션)."""
+        attempted_path = os.path.join(self.tmp, "attempted.json")
+        with open(attempted_path, "w", encoding="utf-8") as f:
+            json.dump({"faky3": [DAY.isoformat()]}, f)
+        self.assertTrue(collect.needs_collect("faky3", DAY, directory=self.tmp))
 
 
 class TestEndToEndAgainstFakeSite(unittest.TestCase):

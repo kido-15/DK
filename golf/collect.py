@@ -10,6 +10,7 @@ from __future__ import annotations
 
 import json
 import os
+import time
 from typing import Optional
 
 from . import snapshot
@@ -123,9 +124,19 @@ def snapshot_has_date(source_id: str, play_date, *,
 
 # ---------------------------------------------------------------------------
 # 이미 시도해 본 날짜 기록 — 빈 날짜를 계속 다시 모으자고 권하지 않기 위해서다
+#
+# 그렇다고 한 번 모은 날짜를 영원히 "최신"으로 믿으면 안 된다. 티타임은
+# 실시간으로 열리고 닫혀서, 몇 시간 전에 모은 결과가 지금은 이미 마감된
+# 자리를 "가능"으로 보여줄 수도 있고, 그 사이 새로 열린 자리를 놓칠 수도
+# 있다. 그래서 "언제" 모았는지도 같이 남기고, 너무 오래됐으면 다시 권한다.
 # ---------------------------------------------------------------------------
 
 _ATTEMPTED_FILENAME = "attempted.json"
+
+# 이만큼 지나면 "이미 모았다"를 더 이상 최신으로 안 믿는다. 검색할 때마다
+# 매번 다시 모으면 카카오만 17분씩 걸려 검색이 너무 느려지므로, 이 정도
+# 지난 뒤에만 "다시 모을까요?" 를 다시 권한다.
+STALE_AFTER_SECONDS = 60 * 60  # 1시간
 
 
 def _attempted_path(directory: Optional[str] = None) -> str:
@@ -145,36 +156,60 @@ def _load_attempted(directory: Optional[str] = None) -> dict:
 
 
 def mark_attempted(source_id: str, play_date, *,
-                   directory: Optional[str] = None) -> None:
-    """이 날짜를 한 번 모아 봤다고 기록한다.
+                   directory: Optional[str] = None, now: Optional[float] = None) -> None:
+    """이 날짜를 방금 모아 봤다고, 그 시각과 함께 기록한다.
 
     모아 봤는데 0건이었던 날짜를 "지금 모아 보자" 고 계속 다시 권하지
     않기 위해서다. 매물이 진짜 없는 날인지, 아직 한 번도 안 모아 본
-    날인지 구분해야 한다.
+    날인지 구분해야 한다. 시각을 같이 남기는 건, 오래전에 모은 날짜를
+    영원히 최신으로 믿지 않기 위해서다(needs_collect 참고).
     """
+    now = time.time() if now is None else now
     directory = directory or snapshot.SNAPSHOT_DIR
     data = _load_attempted(directory)
-    dates = set(data.get(source_id, []))
-    dates.add(play_date.isoformat())
-    data[source_id] = sorted(dates)
+    per_source = data.get(source_id)
+    if not isinstance(per_source, dict):
+        per_source = {}          # 예전 형식(날짜 목록)은 새로 쓰면서 갱신된다
+    per_source[play_date.isoformat()] = now
+    data[source_id] = per_source
     os.makedirs(directory, exist_ok=True)
     with open(_attempted_path(directory), "w", encoding="utf-8") as f:
         json.dump(data, f, ensure_ascii=False, indent=2)
 
 
+def attempted_at(source_id: str, play_date, *,
+                 directory: Optional[str] = None) -> Optional[float]:
+    """그 날짜를 마지막으로 모아 본 시각(epoch 초). 모아 본 적 없으면 None.
+
+    예전 형식(시각 없이 날짜 목록만 있던 버전)과 호환한다 — 시각이 없는
+    기록은 아주 오래전(0)으로 봐서, 자연스럽게 "다시 모을까요?" 로 넘어가게
+    한다.
+    """
+    data = _load_attempted(directory)
+    per_source = data.get(source_id)
+    if isinstance(per_source, dict):
+        return per_source.get(play_date.isoformat())
+    if isinstance(per_source, list) and play_date.isoformat() in per_source:
+        return 0.0
+    return None
+
+
 def was_attempted(source_id: str, play_date, *,
                   directory: Optional[str] = None) -> bool:
-    data = _load_attempted(directory)
-    return play_date.isoformat() in set(data.get(source_id, []))
+    return attempted_at(source_id, play_date, directory=directory) is not None
 
 
 def needs_collect(source_id: str, play_date, *,
-                  directory: Optional[str] = None) -> bool:
+                  directory: Optional[str] = None, now: Optional[float] = None) -> bool:
     """그 날짜를 지금 모아 보자고 권해야 하는지.
 
-    이미 갖고 있거나, 이미 시도해서 빈 날짜로 확인됐으면 권하지 않는다.
-    (수동으로는 언제든 다시 모을 수 있다 — 이건 자동 권유만 막는다.)
+    한 번도 안 모아 봤거나, 모아 본 지 STALE_AFTER_SECONDS 넘게 지났으면
+    권한다. 결과가 있었다고(또는 빈 날짜로 확인됐다고) 해서 영원히 최신인
+    건 아니다 — 티타임은 실시간으로 열리고 닫힌다. (수동으로는 언제든
+    다시 모을 수 있다 — 이건 자동 권유 여부만 정한다.)
     """
-    if snapshot_has_date(source_id, play_date, directory=directory):
-        return False
-    return not was_attempted(source_id, play_date, directory=directory)
+    now = time.time() if now is None else now
+    at = attempted_at(source_id, play_date, directory=directory)
+    if at is None:
+        return True
+    return (now - at) > STALE_AFTER_SECONDS

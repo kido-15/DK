@@ -148,8 +148,8 @@ class TestAutoCollectOverHttp(unittest.TestCase):
         self.assertEqual(resp["stats"]["fetched"], 0)
         self.assertIn("needs_collect", resp)
         self.assertEqual(resp["needs_collect"], [
-            {"source": "webfake", "date": DAY.isoformat()},
-            {"source": "webfake2", "date": DAY.isoformat()},
+            {"source": "webfake", "date": DAY.isoformat(), "last_collected_at": None},
+            {"source": "webfake2", "date": DAY.isoformat(), "last_collected_at": None},
         ])
 
     def test_start_then_status_then_search_succeeds(self):
@@ -174,7 +174,40 @@ class TestAutoCollectOverHttp(unittest.TestCase):
         resp = _get(self.base,
                     f"/api/search?origin=37.5,127.0&date={DAY.isoformat()}")
         self.assertGreater(resp["stats"]["fetched"], 0)
-        self.assertEqual(resp["needs_collect"], [{"source": "webfake2", "date": DAY.isoformat()}])
+        self.assertEqual(resp["needs_collect"],
+                        [{"source": "webfake2", "date": DAY.isoformat(), "last_collected_at": None}])
+
+    def test_stale_collection_is_offered_again_with_timestamp(self):
+        """오래전에 모은 날짜는, 결과가 있어도 다시 모으자고 권하고
+        마지막으로 모은 시각을 같이 알려 줘야 한다."""
+        started = _post(self.base, "/api/collect/start",
+                        {"source": "webfake", "date": DAY.isoformat()})
+        self.assertTrue(started["started"])
+        for _ in range(200):
+            if _get(self.base, "/api/collect/status?source=webfake")["status"] != "running":
+                break
+            time.sleep(0.05)
+
+        # 방금 모았으니 아직은 다시 권하지 않아야 한다.
+        resp = _get(self.base,
+                    f"/api/search?origin=37.5,127.0&date={DAY.isoformat()}")
+        sources_flagged = {n["source"] for n in resp.get("needs_collect", [])}
+        self.assertNotIn("webfake", sources_flagged)
+
+        # attempted.json 의 시각을 오래전으로 되돌려, 다음 검색에서
+        # 다시 권해야 한다.
+        old_ts = time.time() - collect.STALE_AFTER_SECONDS - 1
+        attempted_path = os.path.join(self.snap_dir, "attempted.json")
+        with open(attempted_path, encoding="utf-8") as f:
+            data = json.load(f)
+        data["webfake"][DAY.isoformat()] = old_ts
+        with open(attempted_path, "w", encoding="utf-8") as f:
+            json.dump(data, f)
+
+        resp = _get(self.base,
+                    f"/api/search?origin=37.5,127.0&date={DAY.isoformat()}")
+        entry = next(n for n in resp["needs_collect"] if n["source"] == "webfake")
+        self.assertAlmostEqual(entry["last_collected_at"], old_ts, delta=1)
 
     def test_double_start_reports_already_running(self):
         r1 = _post(self.base, "/api/collect/start",

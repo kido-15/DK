@@ -231,17 +231,22 @@ class Handler(BaseHTTPRequestHandler):
             "stats": stats.to_dict(),
         }
 
-        # 소스 중 그 날짜를 아직 안 모아 본 게 있으면 알려 준다. 다른 소스가
-        # 이미 결과를 줬어도(fetched > 0) 상관없이 확인한다 — 골팡만 모으고
-        # 카카오는 빠뜨린 채로 결과가 나오면, 그 사실을 모르고 "검색되는
-        # 대로가 전부"라고 착각하기 쉽다. 이미 시도해서 빈 날짜로 확인된
-        # 소스는 다시 권하지 않는다(collect.needs_collect).
+        # 소스 중 그 날짜를 아직 안 모았거나(fetched > 0 이어도 상관없이
+        # 확인한다 — 골팡만 모으고 카카오는 빠뜨린 채로 결과가 나오면 그
+        # 사실을 모르고 착각하기 쉽다), 모아 온 지 오래된 게 있으면
+        # 알려 준다. 티타임은 실시간으로 열리고 닫히므로, 결과가 있었다고
+        # 영원히 최신인 건 아니다(collect.needs_collect, STALE_AFTER_SECONDS).
         if q.play_date is not None:
             missing = [s for s in st.auto_collect_sources
                       if collect.needs_collect(s, q.play_date)]
             if missing:
                 payload["needs_collect"] = [
-                    {"source": s, "date": q.play_date.isoformat()} for s in missing
+                    {
+                        "source": s,
+                        "date": q.play_date.isoformat(),
+                        "last_collected_at": collect.attempted_at(s, q.play_date),
+                    }
+                    for s in missing
                 ]
 
         self._json(payload)
