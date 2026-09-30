@@ -241,7 +241,18 @@ document.querySelectorAll("#results thead th[data-key]").forEach((th) => {
   });
 });
 
+// 일반 검색(표)과 연속 타임 찾기(카드)는 같은 결과 영역을 나눠 쓴다 —
+// collect-banner·요약칩·진단 정보는 공통이고, 그 아래 표시 방식만 다르다.
+function setResultsMode(mode) {
+  const isConsecutive = mode === "consecutive";
+  document.querySelector(".table-wrap").classList.toggle("hidden", isConsecutive);
+  $("consecutive-groups").classList.toggle("hidden", !isConsecutive);
+  $("summary-chips").classList.toggle("hidden", isConsecutive);
+  $("export-csv").classList.toggle("hidden", isConsecutive);
+}
+
 function renderResults(data) {
+  setResultsMode("search");
   currentResults = data.results;
   tableSort = { key: null, dir: 1 };
   updateSortHeaders();
@@ -283,7 +294,17 @@ function renderResults(data) {
 }
 
 let lastSearchParams = null;   // 수집이 끝난 뒤 같은 조건으로 자동 재검색할 때 쓴다
+let lastSearchMode = "search"; // "search" | "consecutive" — 재검색도 같은 모드로 한다
 let collectPollTimer = null;
+
+function rerunLastSearch() {
+  if (!lastSearchParams) return;
+  if (lastSearchMode === "consecutive") {
+    runConsecutiveSearch(lastSearchParams);
+  } else {
+    runSearch(lastSearchParams);
+  }
+}
 
 async function runSearch(params) {
   hideNotice();
@@ -311,6 +332,94 @@ async function runSearch(params) {
   }
 }
 
+// -- 연속 타임 찾기 -----------------------------------------------------
+//
+// 여러 팀이 한 골프장에서 이어서 치려 할 때 쓴다. 검색 자체(날짜·시간대·
+// 이동시간 필터)는 일반 검색과 똑같이 서버가 하고(golf/consecutive.py),
+// 여기서는 그 결과를 골프장별 "묶음" 카드로 보여만 준다.
+
+async function runConsecutiveSearch(params) {
+  hideNotice();
+  const btn = $("submit-btn");
+  btn.disabled = true;
+  btn.querySelector(".btn-label").textContent = "찾는 중";
+  btn.querySelector(".spinner").classList.remove("hidden");
+  $("empty").classList.add("hidden");
+
+  try {
+    const res = await fetch("/api/consecutive?" + params.toString());
+    const data = await res.json();
+    if (!res.ok || data.error) {
+      showNotice(escapeHtml(data.error || "검색에 실패했습니다."), true);
+      $("results-section").classList.add("hidden");
+    } else {
+      renderConsecutiveResults(data);
+    }
+  } catch (err) {
+    showNotice("검색 요청이 실패했습니다: " + escapeHtml(err.message), true);
+  } finally {
+    btn.disabled = false;
+    btn.querySelector(".btn-label").textContent = "검색";
+    btn.querySelector(".spinner").classList.add("hidden");
+  }
+}
+
+function renderConsecutiveGroupCard(g) {
+  const slotsHtml = g.slots.map((s) => {
+    const link = s.booking_url
+      ? `<a href="${s.booking_url}" target="_blank" rel="noopener noreferrer" class="book-link">예약 ↗</a>`
+      : "—";
+    return `<tr><td>${escapeHtml(s.tee_time)}</td><td class="num">${fmtWon(s.green_fee)}</td>` +
+      `<td>${s.slots ?? "—"}</td><td>${link}</td></tr>`;
+  }).join("");
+
+  const drive = g.drive_minutes == null ? "" :
+    `<span class="chip-sm">🚗 ${g.drive_minutes}분</span>`;
+
+  return `
+    <div class="consecutive-card">
+      <div class="cc-head">
+        <h3>${escapeHtml(g.course_name)}</h3>
+        <span class="chip-sm hi">${g.count}개 연속</span>
+        ${drive}
+        <span class="chip-sm">${escapeHtml(g.region || "—")}</span>
+        <span class="tag">${escapeHtml(sourceLabel(g.source))}</span>
+      </div>
+      <div class="cc-range">${escapeHtml(g.first_tee)} ~ ${escapeHtml(g.last_tee)}</div>
+      <table class="cc-slots">
+        <thead><tr><th>티오프</th><th class="num">그린피</th><th>잔여</th><th>예약</th></tr></thead>
+        <tbody>${slotsHtml}</tbody>
+      </table>
+    </div>`;
+}
+
+function renderConsecutiveResults(data) {
+  setResultsMode("consecutive");
+  currentResults = [];
+
+  const groups = data.groups || [];
+  $("result-count").textContent = `${groups.length}개 골프장`;
+  $("results-section").classList.remove("hidden");
+  renderStats(data.stats);
+  renderCollectBanner(data.needs_collect);
+
+  $("consecutive-groups").innerHTML = groups.map(renderConsecutiveGroupCard).join("");
+
+  const empty = $("empty");
+  if (groups.length === 0) {
+    let msg = `조건에 맞게 ${escapeHtml(String(data.min_count))}개 이상 연속으로 이어지는 골프장을 못 찾았습니다.`;
+    if (data.needs_collect) {
+      msg += "<br>아직 그 날짜의 티타임을 모아 본 적이 없습니다.";
+    } else {
+      msg += "<br>티오프 시간대를 넓히거나, 연속 개수를 줄여 보세요.";
+    }
+    empty.innerHTML = msg;
+    empty.classList.remove("hidden");
+  } else {
+    empty.classList.add("hidden");
+  }
+}
+
 $("search-form").addEventListener("submit", (e) => {
   e.preventDefault();
   const form = new FormData(e.target);
@@ -318,8 +427,11 @@ $("search-form").addEventListener("submit", (e) => {
   for (const [k, v] of form.entries()) {
     if (String(v).trim()) params.set(k, v);
   }
+  const wantsConsecutive = $("find_consecutive").checked;
+  params.delete("find_consecutive");
   lastSearchParams = params;
-  runSearch(params);
+  lastSearchMode = wantsConsecutive ? "consecutive" : "search";
+  rerunLastSearch();
 });
 
 // -- 검색한 날짜에 아직 안 모은 소스가 있으면 그 자리에서 모으기 ---------------
@@ -436,7 +548,7 @@ function pollCollectStatus(sources) {
     if (pending.size === 0) {
       clearInterval(collectPollTimer);
       progress.innerHTML += "<div>다시 검색합니다…</div>";
-      if (lastSearchParams) runSearch(lastSearchParams);
+      rerunLastSearch();
     }
   }, 1500);
 }

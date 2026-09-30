@@ -200,3 +200,30 @@ footer p { margin: 4px 0; }
   font-size: .78rem; color: var(--muted); cursor: pointer;
 }
 .check input { width: auto; padding: 0; }
+
+/* 연속 타임 찾기 */
+.inline-number { display: flex; align-items: center; gap: 8px; margin-top: 6px; }
+.inline-number input { width: 64px; flex: none; }
+.inline-number small { color: var(--muted); font-size: .76rem; }
+
+.consecutive-groups {
+  display: grid; grid-template-columns: repeat(auto-fill, minmax(280px, 1fr));
+  gap: 14px; margin-top: 6px;
+}
+.consecutive-card {
+  background: var(--panel); border: 1px solid var(--line); border-radius: 12px;
+  padding: 14px 16px; box-shadow: var(--shadow);
+}
+.cc-head { display: flex; align-items: center; flex-wrap: wrap; gap: 6px; }
+.cc-head h3 { margin: 0; font-size: 1rem; flex: 1 1 auto; min-width: 0; }
+.chip-sm {
+  display: inline-block; background: var(--bg); border: 1px solid var(--line);
+  border-radius: 999px; padding: 2px 9px; font-size: .74rem; color: var(--muted);
+}
+.chip-sm.hi { background: var(--accent-soft); color: var(--accent); font-weight: 700; border-color: transparent; }
+.cc-range { margin: 8px 0 4px; color: var(--muted); font-size: .82rem; }
+.cc-slots { width: 100%; border-collapse: collapse; font-size: .82rem; margin-top: 6px; }
+.cc-slots th { text-align: left; color: var(--muted); font-weight: 500; font-size: .74rem; padding: 4px 6px; }
+.cc-slots td { padding: 5px 6px; border-top: 1px solid var(--line); }
+.cc-slots .num { text-align: right; }
+.cc-slots .book-link { padding: 2px 10px; font-size: .74rem; }

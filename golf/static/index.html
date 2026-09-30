@@ -87,6 +87,18 @@
         </label>
         <small>"-퍼9" 등 9홀을 두 바퀴 도는 코스를 뺍니다</small>
       </label>
+
+      <label class="field">
+        <span>👥 연속 타임</span>
+        <label class="check">
+          <input type="checkbox" id="find_consecutive" name="find_consecutive" value="1">
+          <span>같은 골프장에 이어지는 티타임 찾기</span>
+        </label>
+        <div class="inline-number">
+          <input type="number" id="min_count" name="min_count" min="2" max="10" step="1" value="3">
+          <small>개 이상 연속(간격 10분 이내, 같은 예약처 기준)</small>
+        </div>
+      </label>
     </div>
 
     <div class="actions">
@@ -129,6 +141,8 @@
         <tbody></tbody>
       </table>
     </div>
+
+    <div id="consecutive-groups" class="consecutive-groups hidden"></div>
   </section>
 
   <div id="empty" class="empty hidden"></div>

@@ -25,7 +25,7 @@ from datetime import date, datetime
 from http.server import BaseHTTPRequestHandler, ThreadingHTTPServer
 from typing import Optional
 
-from . import collect
+from . import collect, consecutive
 from .collect_job import CollectJobManager
 from .courses import CourseBook
 from .geo import Geocoder
@@ -170,6 +170,8 @@ class Handler(BaseHTTPRequestHandler):
                 self._json({"regions": self.state.book.regions()})
             elif path == "/api/search":
                 self._api_search(params)
+            elif path == "/api/consecutive":
+                self._api_consecutive(params)
             elif path == "/api/collect/status":
                 self._api_collect_status(params)
             else:
@@ -230,25 +232,69 @@ class Handler(BaseHTTPRequestHandler):
             "results": [r.to_dict() for r in results],
             "stats": stats.to_dict(),
         }
+        self._add_needs_collect(payload, st, q)
+        self._json(payload)
 
+    def _add_needs_collect(self, payload: dict, st: "AppState", q: SearchQuery) -> None:
         # 소스 중 그 날짜를 아직 안 모았거나(fetched > 0 이어도 상관없이
         # 확인한다 — 골팡만 모으고 카카오는 빠뜨린 채로 결과가 나오면 그
         # 사실을 모르고 착각하기 쉽다), 모아 온 지 오래된 게 있으면
         # 알려 준다. 티타임은 실시간으로 열리고 닫히므로, 결과가 있었다고
         # 영원히 최신인 건 아니다(collect.needs_collect, STALE_AFTER_SECONDS).
-        if q.play_date is not None:
-            missing = [s for s in st.auto_collect_sources
-                      if collect.needs_collect(s, q.play_date)]
-            if missing:
-                payload["needs_collect"] = [
-                    {
-                        "source": s,
-                        "date": q.play_date.isoformat(),
-                        "last_collected_at": collect.attempted_at(s, q.play_date),
-                    }
-                    for s in missing
-                ]
+        if q.play_date is None:
+            return
+        missing = [s for s in st.auto_collect_sources
+                  if collect.needs_collect(s, q.play_date)]
+        if missing:
+            payload["needs_collect"] = [
+                {
+                    "source": s,
+                    "date": q.play_date.isoformat(),
+                    "last_collected_at": collect.attempted_at(s, q.play_date),
+                }
+                for s in missing
+            ]
 
+    def _api_consecutive(self, params):
+        """같은 골프장에 연속으로 이어지는 티타임 묶음 찾기.
+
+        여러 팀이 이어서 치려 할 때 쓴다 — 검색 자체는 /api/search 와
+        똑같이 하되(날짜·시간대·이동시간 필터 그대로), 결과를 골프장·
+        예약처별로 묶어 연속된 것만 골라낸다(golf.consecutive 참고).
+        """
+        st = self.state
+        q, err = build_query(params, st)
+        if q is None:
+            self._json({"error": err}, 400)
+            return
+        q.limit = None            # 묶기 전에 자르면 뒤쪽 연속 매물을 놓친다
+        q.sort = "tee_time"       # 묶는 데는 순서가 상관없지만, 결과 재사용 시 자연스럽다
+
+        def int_param(key: str, default: int) -> int:
+            vals = params.get(key) or []
+            raw = (vals[0] if vals else "").strip()
+            return int(raw) if raw.isdigit() else default
+
+        min_count = max(2, int_param("min_count", 3))
+        max_gap = max(1, int_param("max_gap_minutes", consecutive.DEFAULT_MAX_GAP_MINUTES))
+
+        results, stats = st.engine.search(q)
+        groups = consecutive.find_consecutive_groups(
+            results, min_count=min_count, max_gap_minutes=max_gap)
+
+        payload = {
+            "query": {
+                "origin": q.origin,
+                "origin_lat": q.origin_lat,
+                "origin_lon": q.origin_lon,
+                "describe": q.describe(),
+            },
+            "min_count": min_count,
+            "max_gap_minutes": max_gap,
+            "groups": [g.to_dict() for g in groups],
+            "stats": stats.to_dict(),
+        }
+        self._add_needs_collect(payload, st, q)
         self._json(payload)
 
     def _api_collect_status(self, params):
