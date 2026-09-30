@@ -134,6 +134,9 @@ function renderSummary(results) {
 }
 
 let currentResults = [];         // 화면에 지금 떠 있는 결과 (열 헤더로 다시 정렬할 때 씀)
+let currentGroups = [];          // 연속 타임 모드일 때의 결과 (이미지 저장에서 씀)
+let resultsMode = "search";      // "search" | "consecutive" — 이미지 저장이 어느 걸 그릴지 고른다
+let lastResultDescribe = "";     // 검색 조건 요약(서버가 준 query.describe) — 이미지 상단에 표시
 let tableSort = { key: null, dir: 1 };   // 마지막으로 클릭한 열과 방향
 
 function renderTable(results) {
@@ -244,6 +247,7 @@ document.querySelectorAll("#results thead th[data-key]").forEach((th) => {
 // 일반 검색(표)과 연속 타임 찾기(카드)는 같은 결과 영역을 나눠 쓴다 —
 // collect-banner·요약칩·진단 정보는 공통이고, 그 아래 표시 방식만 다르다.
 function setResultsMode(mode) {
+  resultsMode = mode;
   const isConsecutive = mode === "consecutive";
   document.querySelector(".table-wrap").classList.toggle("hidden", isConsecutive);
   $("consecutive-groups").classList.toggle("hidden", !isConsecutive);
@@ -254,6 +258,8 @@ function setResultsMode(mode) {
 function renderResults(data) {
   setResultsMode("search");
   currentResults = data.results;
+  currentGroups = [];
+  lastResultDescribe = (data.query && data.query.describe) || "";
   tableSort = { key: null, dir: 1 };
   updateSortHeaders();
   renderSummary(data.results);
@@ -396,6 +402,8 @@ function renderConsecutiveGroupCard(g) {
 function renderConsecutiveResults(data) {
   setResultsMode("consecutive");
   currentResults = [];
+  currentGroups = data.groups || [];
+  lastResultDescribe = (data.query && data.query.describe) || "";
 
   const groups = data.groups || [];
   $("result-count").textContent = `${groups.length}개 골프장`;
@@ -607,5 +615,178 @@ function exportResultsCsv() {
 }
 
 $("export-csv").addEventListener("click", exportResultsCsv);
+
+// -- 이미지로 저장(카톡 등으로 공유) -------------------------------------
+//
+// 화면을 그대로 캡처하려면 html2canvas 같은 외부 라이브러리가 필요한데,
+// 이 프로젝트는 서버뿐 아니라 화면 쪽도 외부 의존성을 두지 않는다. 대신
+// 지금 결과를 <canvas> 위에 직접 그려서(=우리가 이미 갖고 있는 데이터로
+// 새로 그리는 "공유 카드"), CSV와 같은 방식(Blob + <a download>)으로
+// PNG 파일로 저장한다. 실제 화면 그대로는 아니지만 공유용으로는 오히려
+// 더 깔끔하다(체크박스·버튼 같은 조작 UI가 안 찍힌다).
+
+const SHARE_WIDTH = 720;
+const SHARE_PAD = 24;
+const SHARE_FONT = "-apple-system, BlinkMacSystemFont, 'Apple SD Gothic Neo', 'Malgun Gothic', sans-serif";
+
+function downloadCanvas(canvas, filename) {
+  canvas.toBlob((blob) => {
+    if (!blob) return;
+    const url = URL.createObjectURL(blob);
+    const a = document.createElement("a");
+    a.href = url;
+    a.download = filename;
+    document.body.appendChild(a);
+    a.click();
+    a.remove();
+    URL.revokeObjectURL(url);
+  }, "image/png");
+}
+
+function makeShareCanvas(height) {
+  const scale = 2;   // 레티나 화면에서도 흐릿하지 않게
+  const canvas = document.createElement("canvas");
+  canvas.width = SHARE_WIDTH * scale;
+  canvas.height = height * scale;
+  const ctx = canvas.getContext("2d");
+  ctx.scale(scale, scale);
+  ctx.fillStyle = "#ffffff";
+  ctx.fillRect(0, 0, SHARE_WIDTH, height);
+  return { canvas, ctx };
+}
+
+function drawShareHeader(ctx, title, subtitle) {
+  let y = SHARE_PAD + 24;
+  ctx.fillStyle = "#1a1d21";
+  ctx.font = `700 21px ${SHARE_FONT}`;
+  ctx.fillText(title, SHARE_PAD, y);
+  y += 24;
+  if (subtitle) {
+    ctx.fillStyle = "#6b7280";
+    ctx.font = `13px ${SHARE_FONT}`;
+    ctx.fillText(subtitle, SHARE_PAD, y);
+    y += 18;
+  }
+  return y + 10;
+}
+
+function drawShareFooter(ctx, y) {
+  ctx.strokeStyle = "#e2e5ea";
+  ctx.beginPath();
+  ctx.moveTo(SHARE_PAD, y);
+  ctx.lineTo(SHARE_WIDTH - SHARE_PAD, y);
+  ctx.stroke();
+  y += 20;
+  ctx.fillStyle = "#9aa3ad";
+  ctx.font = `11px ${SHARE_FONT}`;
+  ctx.fillText("그린피·잔여좌석은 예약 사이트 기준이며 실제와 다를 수 있습니다. 예약 전 원 사이트에서 확인하세요.", SHARE_PAD, y);
+  y += 16;
+  ctx.fillText(`⛳ 골프장 티타임 검색 · ${new Date().toLocaleString("ko-KR")}`, SHARE_PAD, y);
+  return y;
+}
+
+const SHARE_MAX_ROWS = 12;
+
+function exportTableAsImage() {
+  if (!currentResults.length) return;
+  const rows = currentResults.slice(0, SHARE_MAX_ROWS);
+  const extra = currentResults.length > rows.length;
+  const rowH = 40;
+  const height = 90 + rows.length * rowH + (extra ? 24 : 0) + 70;
+
+  const { canvas, ctx } = makeShareCanvas(height);
+  let y = drawShareHeader(ctx, "⛳ 골프장 티타임 검색 결과", lastResultDescribe);
+
+  rows.forEach((r, i) => {
+    ctx.fillStyle = "#1a1d21";
+    ctx.font = `600 15px ${SHARE_FONT}`;
+    ctx.fillText(`${i + 1}. ${r.display_name}${r.nine_hole ? " (9홀)" : ""}`, SHARE_PAD, y + 15);
+    ctx.fillStyle = "#6b7280";
+    ctx.font = `12px ${SHARE_FONT}`;
+    const drive = r.drive_minutes != null ? `${r.drive_minutes}분` : "이동시간 모름";
+    ctx.fillText(
+      `${r.play_date} ${r.tee_time} · ${fmtWon(r.green_fee)} · ${drive} · ${r.region || "-"} · ${sourceLabel(r.source)}`,
+      SHARE_PAD, y + 32);
+    y += rowH;
+    if (i < rows.length - 1) {
+      ctx.strokeStyle = "#eef0f2";
+      ctx.beginPath();
+      ctx.moveTo(SHARE_PAD, y - 6);
+      ctx.lineTo(SHARE_WIDTH - SHARE_PAD, y - 6);
+      ctx.stroke();
+    }
+  });
+
+  if (extra) {
+    ctx.fillStyle = "#9aa3ad";
+    ctx.font = `12px ${SHARE_FONT}`;
+    ctx.fillText(`외 ${currentResults.length - rows.length}건 더 있음`, SHARE_PAD, y + 6);
+    y += 24;
+  }
+
+  drawShareFooter(ctx, y + 8);
+  downloadCanvas(canvas, `골프검색결과_${new Date().toISOString().slice(0, 10)}.png`);
+}
+
+const SHARE_MAX_SLOTS_PER_GROUP = 8;
+
+function groupBlockHeight(g) {
+  const shown = Math.min(g.slots.length, SHARE_MAX_SLOTS_PER_GROUP);
+  let h = 38 + shown * 19;
+  if (g.slots.length > shown) h += 19;
+  return h + 16;
+}
+
+function drawGroupBlock(ctx, g, y) {
+  ctx.fillStyle = "#1a1d21";
+  ctx.font = `700 15px ${SHARE_FONT}`;
+  ctx.fillText(`${g.course_name} · ${g.count}개 연속 (${g.first_tee}~${g.last_tee})`, SHARE_PAD, y + 14);
+  ctx.font = `12px ${SHARE_FONT}`;
+  ctx.fillStyle = "#6b7280";
+  const drive = g.drive_minutes != null ? ` · 🚗${g.drive_minutes}분` : "";
+  ctx.fillText(`${g.region || "-"} · ${sourceLabel(g.source)}${drive}`, SHARE_PAD, y + 30);
+  y += 38;
+
+  const shown = g.slots.slice(0, SHARE_MAX_SLOTS_PER_GROUP);
+  ctx.font = `13px ${SHARE_FONT}`;
+  shown.forEach((s) => {
+    ctx.fillStyle = "#1a1d21";
+    ctx.fillText(`${s.tee_time}   ${fmtWon(s.green_fee)}`, SHARE_PAD + 10, y + 12);
+    y += 19;
+  });
+  if (g.slots.length > shown.length) {
+    ctx.fillStyle = "#9aa3ad";
+    ctx.fillText(`외 ${g.slots.length - shown.length}개 더`, SHARE_PAD + 10, y + 12);
+    y += 19;
+  }
+  y += 8;
+  ctx.strokeStyle = "#eef0f2";
+  ctx.beginPath();
+  ctx.moveTo(SHARE_PAD, y);
+  ctx.lineTo(SHARE_WIDTH - SHARE_PAD, y);
+  ctx.stroke();
+  return y + 8;
+}
+
+function exportGroupsAsImage() {
+  if (!currentGroups.length) return;
+  const height = 90 + currentGroups.reduce((sum, g) => sum + groupBlockHeight(g), 0) + 70;
+
+  const { canvas, ctx } = makeShareCanvas(height);
+  let y = drawShareHeader(ctx, "⛳ 연속 타임 검색 결과", lastResultDescribe);
+  for (const g of currentGroups) {
+    y = drawGroupBlock(ctx, g, y);
+  }
+  drawShareFooter(ctx, y + 8);
+  downloadCanvas(canvas, `골프연속타임_${new Date().toISOString().slice(0, 10)}.png`);
+}
+
+$("export-image").addEventListener("click", () => {
+  if (resultsMode === "consecutive") {
+    exportGroupsAsImage();
+  } else {
+    exportTableAsImage();
+  }
+});
 
 loadMeta();
