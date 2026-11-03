@@ -6,6 +6,9 @@
 - 조회 대상: `국회의원 발의법률안` API (서비스ID `nzmimeepazxkubdpn`), 22대 국회
 - 실행 주기: AWS Lambda(서울 리전) + EventBridge로 하루 3회 (KST 09/15/21시, `lambda/deploy.sh`에서 조정 가능)
 - 상태 저장: 이미 확인한 의안번호를 S3 버킷에 저장해 중복 알림을 방지
+- 메일 내용: 법안명·의안번호·제안자·제안일·상세 URL + **제안이유 및 주요내용**
+  (`법률안 제안이유 및 주요내용` API, 서비스ID `BPMBILLSUMMARY`로 의안번호별 추가 조회.
+  발의 직후라 아직 등록 전이면 "아직 등록되지 않음" 안내문이 대신 들어감)
 
 > **왜 GitHub Actions가 아니라 AWS인가요?** 열린국회정보(open.assembly.go.kr)는 해외 IP 접속을 막고 있어서,
 > 미국 리전에서 실행되는 GitHub Actions에서는 API 호출이 타임아웃됩니다. 국내(서울) 리전인 AWS Lambda나

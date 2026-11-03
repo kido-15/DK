@@ -100,12 +100,12 @@ if aws lambda get-function --function-name "$FUNCTION_NAME" --region "$REGION" >
     --zip-file fileb://function.zip >/dev/null
   aws lambda wait function-updated --function-name "$FUNCTION_NAME" --region "$REGION"
   aws lambda update-function-configuration --function-name "$FUNCTION_NAME" --region "$REGION" \
-    --environment "$ENV_VARS" --timeout 30 >/dev/null
+    --environment "$ENV_VARS" --timeout 60 >/dev/null
   echo "함수 업데이트 완료"
 else
   aws lambda create-function --function-name "$FUNCTION_NAME" --region "$REGION" \
     --runtime python3.12 --handler handler.handler --role "$ROLE_ARN" \
-    --zip-file fileb://function.zip --timeout 30 --memory-size 128 \
+    --zip-file fileb://function.zip --timeout 60 --memory-size 128 \
     --environment "$ENV_VARS" >/dev/null
   echo "함수 생성 완료"
 fi

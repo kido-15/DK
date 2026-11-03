@@ -25,6 +25,8 @@ import boto3
 
 API_CODE = "nzmimeepazxkubdpn"  # 국회의원 발의법률안
 API_BASE = f"https://open.assembly.go.kr/portal/openapi/{API_CODE}"
+SUMMARY_API_CODE = "BPMBILLSUMMARY"  # 법률안 제안이유 및 주요내용
+SUMMARY_API_BASE = f"https://open.assembly.go.kr/portal/openapi/{SUMMARY_API_CODE}"
 KEYWORD = "인공지능"
 AGE = 22  # 22대 국회
 PAGE_SIZE = 100
@@ -41,6 +43,39 @@ EMPTY_CODES = {"DATA-000"}
 s3 = boto3.client("s3")
 
 
+def call_api(api_code: str, api_base: str, params: dict) -> list[dict]:
+    """열린국회정보 API 한 페이지를 호출해 row 목록을 반환한다. 결과가 없으면 빈 리스트."""
+    url = f"{api_base}?{urlencode(params)}"
+    request = Request(url, headers=REQUEST_HEADERS)
+    try:
+        with urlopen(request, timeout=20) as resp:
+            raw = resp.read().decode("utf-8-sig")
+    except HTTPError as e:
+        body = e.read().decode("utf-8-sig", errors="replace")
+        raise RuntimeError(f"HTTP 오류 {e.code} {e.reason}. 응답: {body[:500]}") from e
+
+    data = json.loads(raw)
+    block = data.get(api_code)
+    if not block:
+        # 결과가 없을 때는 {"RESULT": {...}} 형태로만 오는 경우가 있다
+        result = data.get("RESULT") or {}
+        code = result.get("CODE")
+        if code and code not in OK_CODES | EMPTY_CODES:
+            raise RuntimeError(f"열린국회정보 API 오류 [{code}]: {result.get('MESSAGE')}")
+        return []
+
+    head_part, body_part = block[0], block[1]
+    result = head_part["head"][1]["RESULT"]
+    code = result.get("CODE")
+
+    if code in EMPTY_CODES:
+        return []
+    if code not in OK_CODES:
+        raise RuntimeError(f"열린국회정보 API 오류 [{code}]: {result.get('MESSAGE')}")
+
+    return body_part.get("row", [])
+
+
 def fetch_bills(api_key: str) -> list[dict]:
     rows: list[dict] = []
     page = 1
@@ -53,30 +88,7 @@ def fetch_bills(api_key: str) -> list[dict]:
             "AGE": AGE,
             "BILL_NAME": KEYWORD,
         }
-        url = f"{API_BASE}?{urlencode(params)}"
-        request = Request(url, headers=REQUEST_HEADERS)
-        try:
-            with urlopen(request, timeout=20) as resp:
-                raw = resp.read().decode("utf-8-sig")
-        except HTTPError as e:
-            body = e.read().decode("utf-8-sig", errors="replace")
-            raise RuntimeError(f"HTTP 오류 {e.code} {e.reason}. 응답: {body[:500]}") from e
-
-        data = json.loads(raw)
-        block = data.get(API_CODE)
-        if not block:
-            break
-
-        head_part, body_part = block[0], block[1]
-        result = head_part["head"][1]["RESULT"]
-        code = result.get("CODE")
-
-        if code in EMPTY_CODES:
-            break
-        if code not in OK_CODES:
-            raise RuntimeError(f"열린국회정보 API 오류 [{code}]: {result.get('MESSAGE')}")
-
-        page_rows = body_part.get("row", [])
+        page_rows = call_api(API_CODE, API_BASE, params)
         if not page_rows:
             break
         rows.extend(page_rows)
@@ -86,6 +98,21 @@ def fetch_bills(api_key: str) -> list[dict]:
         page += 1
 
     return rows
+
+
+def fetch_summary(api_key: str, bill_no: str) -> str:
+    """의안번호로 '제안이유 및 주요내용'을 조회한다. 실패하거나 없으면 빈 문자열."""
+    if not bill_no:
+        return ""
+    params = {"KEY": api_key, "Type": "json", "pIndex": 1, "pSize": 1, "BILL_NO": bill_no}
+    try:
+        rows = call_api(SUMMARY_API_CODE, SUMMARY_API_BASE, params)
+    except Exception as e:  # 요약 조회 실패가 알림 발송 자체를 막지 않도록 한다
+        print(f"[경고] 의안번호 {bill_no} 제안이유 조회 실패: {e}")
+        return ""
+    if not rows:
+        return ""
+    return (rows[0].get("SUMMARY") or "").strip()
 
 
 def load_seen(bucket: str) -> tuple[set[str], bool]:
@@ -112,14 +139,20 @@ def format_bill(bill: dict) -> str:
     proposer = bill.get("PROPOSER", "")
     date = bill.get("PROPOSE_DT", "")
     link = bill.get("DETAIL_LINK") or bill.get("LINK_URL") or ""
-    return f"- {name} (의안번호 {no})\n  제안자: {proposer} / 제안일: {date}\n  {link}"
+    summary = bill.get("_SUMMARY") or "(아직 국회에 등록되지 않았습니다. 위 링크에서 확인해 주세요.)"
+    return (
+        f"■ {name} (의안번호 {no})\n"
+        f"  제안자: {proposer} / 제안일: {date}\n"
+        f"  {link}\n\n"
+        f"[제안이유 및 주요내용]\n{summary}"
+    )
 
 
 def send_email(new_bills: list[dict], gmail_addr: str, gmail_pass: str, to_addrs: list[str]) -> None:
     body_lines = [format_bill(b) for b in new_bills]
     body = (
         f'"{KEYWORD}"이(가) 포함된 새 발의법률안이 {len(new_bills)}건 확인되었습니다.\n\n'
-        + "\n\n".join(body_lines)
+        + ("\n\n" + "-" * 60 + "\n\n").join(body_lines)
     )
 
     msg = MIMEText(body, _charset="utf-8")
@@ -155,6 +188,8 @@ def handler(event, context):
     if is_first_run:
         message = f"최초 실행: 기준 데이터 {len(current_ids)}건을 저장하고 알림은 보내지 않음"
     elif new_bills:
+        for b in new_bills:
+            b["_SUMMARY"] = fetch_summary(api_key, str(b.get("BILL_NO") or ""))
         send_email(new_bills, gmail_addr, gmail_pass, to_addrs)
         message = f"새 법안 {len(new_bills)}건 발견 -> 이메일 전송"
     else:
