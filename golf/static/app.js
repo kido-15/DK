@@ -670,6 +670,12 @@ function drawShareHeader(ctx, title, subtitle) {
   return y + 10;
 }
 
+// drawShareHeader가 실제로 그리고 돌려주는 y와 반드시 같은 계산이어야 한다 —
+// 여기서 틀리면 전체 높이를 적게 잡아 아래쪽 내용이 캔버스 밖으로 잘린다.
+function shareHeaderHeight(subtitle) {
+  return SHARE_PAD + 24 + 24 + (subtitle ? 18 : 0) + 10;
+}
+
 function drawShareFooter(ctx, y) {
   ctx.strokeStyle = "#e2e5ea";
   ctx.beginPath();
@@ -685,14 +691,11 @@ function drawShareFooter(ctx, y) {
   return y;
 }
 
-const SHARE_MAX_ROWS = 12;
-
 function exportTableAsImage() {
   if (!currentResults.length) return;
-  const rows = currentResults.slice(0, SHARE_MAX_ROWS);
-  const extra = currentResults.length > rows.length;
+  const rows = currentResults;
   const rowH = 40;
-  const height = 90 + rows.length * rowH + (extra ? 24 : 0) + 70;
+  const height = shareHeaderHeight(lastResultDescribe) + rows.length * rowH + 70;
 
   const { canvas, ctx } = makeShareCanvas(height);
   let y = drawShareHeader(ctx, "⛳ 골프장 티타임 검색 결과", lastResultDescribe);
@@ -717,24 +720,12 @@ function exportTableAsImage() {
     }
   });
 
-  if (extra) {
-    ctx.fillStyle = "#9aa3ad";
-    ctx.font = `12px ${SHARE_FONT}`;
-    ctx.fillText(`외 ${currentResults.length - rows.length}건 더 있음`, SHARE_PAD, y + 6);
-    y += 24;
-  }
-
   drawShareFooter(ctx, y + 8);
   downloadCanvas(canvas, `골프검색결과_${new Date().toISOString().slice(0, 10)}.png`);
 }
 
-const SHARE_MAX_SLOTS_PER_GROUP = 8;
-
 function groupBlockHeight(g) {
-  const shown = Math.min(g.slots.length, SHARE_MAX_SLOTS_PER_GROUP);
-  let h = 38 + shown * 19;
-  if (g.slots.length > shown) h += 19;
-  return h + 16;
+  return 38 + g.slots.length * 19 + 16;
 }
 
 function drawGroupBlock(ctx, g, y) {
@@ -747,18 +738,12 @@ function drawGroupBlock(ctx, g, y) {
   ctx.fillText(`${g.region || "-"} · ${sourceLabel(g.source)}${drive}`, SHARE_PAD, y + 30);
   y += 38;
 
-  const shown = g.slots.slice(0, SHARE_MAX_SLOTS_PER_GROUP);
   ctx.font = `13px ${SHARE_FONT}`;
-  shown.forEach((s) => {
+  g.slots.forEach((s) => {
     ctx.fillStyle = "#1a1d21";
     ctx.fillText(`${s.tee_time}   ${fmtWon(s.green_fee)}`, SHARE_PAD + 10, y + 12);
     y += 19;
   });
-  if (g.slots.length > shown.length) {
-    ctx.fillStyle = "#9aa3ad";
-    ctx.fillText(`외 ${g.slots.length - shown.length}개 더`, SHARE_PAD + 10, y + 12);
-    y += 19;
-  }
   y += 8;
   ctx.strokeStyle = "#eef0f2";
   ctx.beginPath();
@@ -770,7 +755,8 @@ function drawGroupBlock(ctx, g, y) {
 
 function exportGroupsAsImage() {
   if (!currentGroups.length) return;
-  const height = 90 + currentGroups.reduce((sum, g) => sum + groupBlockHeight(g), 0) + 70;
+  const height = shareHeaderHeight(lastResultDescribe) +
+    currentGroups.reduce((sum, g) => sum + groupBlockHeight(g), 0) + 70;
 
   const { canvas, ctx } = makeShareCanvas(height);
   let y = drawShareHeader(ctx, "⛳ 연속 타임 검색 결과", lastResultDescribe);
